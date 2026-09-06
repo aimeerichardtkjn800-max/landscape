@@ -55,9 +55,18 @@ Standard procedure to commit and push the repo at `d:\3D\card` (remote:
   line, not by the red error block.
 - **Real push failure signature**: output contains `! [rejected]` or
   `failed to push some refs` → run the fetch + rebase sync (step 2), then push again.
-  `Connection was reset` / `Could not connect to server port 443` = network
-  problem (user's proxy); retry, and if it persists, tell the user to check
-  their proxy — do not change remote URLs.
+  `Connection was reset` / `Could not connect to server port 443` after ~21s =
+  git is NOT using the user's Clash proxy even though the system proxy is on
+  (verified: system proxy `127.0.0.1:7897`, ports 7890/7897 listening, git's
+  own `http.proxy` is empty). Fix by routing git through the proxy with an
+  inline `-c` flag (does NOT persist to gitconfig, does NOT touch the remote URL):
+  ```powershell
+  $proxy = "http://127.0.0.1:7897"
+  git -c http.proxy=$proxy -c https.proxy=$proxy fetch origin
+  git -c http.proxy=$proxy -c https.proxy=$proxy push origin main
+  ```
+  (rebase itself is local and needs no proxy). Only tell the user to check
+  their proxy if port 7897 is no longer listening.
 - Line-ending warnings `LF will be replaced by CRLF` are harmless.
 
 ## Local preview (optional verification before/after push)
