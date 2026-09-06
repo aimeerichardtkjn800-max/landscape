@@ -1,0 +1,73 @@
+/* ============ scene2.css · 情书页 HUD（3D 信纸文字由 CSS3D 呈现） ============ */
+
+/* 编辑情话按钮（右上角） */
+#scene2 .corner-btn { position: absolute; top: 18px; right: 18px; }
+
+/* 花瓣/星星切换 */
+#fx-toggle { position: absolute; left: 18px; bottom: calc(78px + env(safe-area-inset-bottom)); }
+
+/* 音乐按钮组 */
+.music-cluster {
+  position: absolute;
+  right: 18px;
+  bottom: calc(78px + env(safe-area-inset-bottom));
+  display: flex; gap: 10px;
+}
+.music-main.playing {
+  background: linear-gradient(135deg, var(--pink), var(--pink-deep));
+  color: #fff;
+  animation: musicPulse 1.8s ease-in-out infinite;
+}
+@keyframes musicPulse {
+  0%, 100% { box-shadow: 0 6px 18px rgba(228, 121, 154, 0.4); }
+  50% { box-shadow: 0 6px 26px rgba(228, 121, 154, 0.65); }
+}
+
+/* ---------- CSS3D 信纸文字（被 CSS3DRenderer 变换，样式保持可读） ---------- */
+.letter3d {
+  width: 620px; height: 440px;
+  padding: 46px 50px 40px;
+  color: #5d4348;
+  background: transparent;
+  font-family: "Ma Shan Zheng", "PingFang SC", "Microsoft YaHei", sans-serif;
+  pointer-events: none;
+}
+.letter3d .paper-title {
+  font-size: 34px;
+  letter-spacing: 12px;
+  text-align: center;
+  font-weight: normal;
+  margin-bottom: 20px;
+  color: #7a4d55;
+}
+.letter3d .letter-body {
+  height: 250px;
+  overflow: hidden;
+  font-size: 21px;
+  line-height: 2;
+  letter-spacing: 2px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.letter3d .caret {
+  display: inline-block;
+  width: 2px; height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.18em;
+  background: var(--pink-deep);
+  animation: caretBlink 0.9s steps(1) infinite;
+}
+.letter3d .caret.off { animation: none; opacity: 0; }
+@keyframes caretBlink { 50% { opacity: 0; } }
+.letter3d .paper-sign {
+  margin-top: 14px;
+  text-align: right;
+  font-size: 18px;
+  letter-spacing: 3px;
+  color: #8a5f66;
+}
+
+@media (max-width: 640px) {
+  .letter3d { width: 560px; height: 470px; padding: 36px 40px 30px; }
+  .letter3d .letter-body { font-size: 19px; height: 270px; }
+}

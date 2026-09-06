@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D 电子情侣贺卡 · 作品详情</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Poppins:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../../style.css?v=2" />
+</head>
+<body>
+
+  <nav class="navbar" id="navbar">
+    <div class="nav-container">
+      <a href="../../index.html#home" class="nav-logo">Landscape<span>.</span></a>
+      <ul class="nav-menu" id="navMenu">
+        <li><a href="../../index.html#home" class="nav-link">首页</a></li>
+        <li><a href="../../index.html#portfolio" class="nav-link active">作品集</a></li>
+        <li><a href="../../index.html#about" class="nav-link">关于我</a></li>
+        <li><a href="../../index.html#contact" class="nav-link">联系方式</a></li>
+      </ul>
+      <button class="nav-toggle" id="navToggle" aria-label="打开菜单" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </nav>
+
+  <article class="container project-body couple-detail">
+    <!-- 1. 返回作品集按钮 -->
+    <a class="back-link" href="../../index.html#portfolio">← 返回作品集</a>
+
+    <!-- 2. 嵌入 3D 电子情侣贺卡 -->
+    <div class="embed-wrap reveal visible">
+      <iframe
+        class="work-embed"
+        src="index.html"
+        title="3D 电子情侣贺卡"
+        allow="autoplay; fullscreen"
+        loading="eager"
+      ></iframe>
+      <p class="embed-tip">提示：点击画面开始互动 —— 拆信封、读信、逛照片墙与放映厅，含背景音乐</p>
+    </div>
+
+    <!-- 3. 作品名称 / 创作日期 / 作品描述 -->
+    <span class="section-sub">Interactive 3D</span>
+    <h1>3D 电子情侣贺卡</h1>
+
+    <div class="project-meta">
+      <span>创作日期 <strong>2026-09-06</strong></span>
+      <span>类型 <strong>交互式 3D 作品</strong></span>
+      <span>技术 <strong>Three.js / GSAP / WebGL</strong></span>
+    </div>
+
+    <div class="content reveal">
+      <p>
+        这是一封可以亲手"拆开"的电子情书：从贴着火漆封缄的信封开始，
+        抽出毛笔手写体的信纸，再一路滑入悬浮的照片墙与浪漫的放映厅，
+        四幕场景由电影般的相机飞行串联起来。
+      </p>
+      <p>
+        全程基于 Three.js 以 WebGL 实时渲染：信纸使用了次表面散射材质模拟透光质感，
+        配合 Bloom 辉光与 SSAO 环境光遮蔽提升画面层次；移动端会自动降低粒子数量与阴影质量，
+        保证低端设备也能流畅运行。
+      </p>
+      <p>
+        贺卡支持替换两人的照片与背景音乐，所有数据仅保存在本地浏览器（IndexedDB）中，
+        既个性化又保护隐私。可以直接点击上方画面体验完整作品。
+      </p>
+    </div>
+  </article>
+
+  <footer class="footer">
+    <p>© 2026 Landscape · 用心生活，认真创作</p>
+  </footer>
+
+  <script src="../../script.js"></script>
+</body>
+</html>

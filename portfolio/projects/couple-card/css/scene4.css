@@ -1,0 +1,40 @@
+/* ============ scene4.css · 3D 影院与祝福 HUD ============ */
+
+/* 祝福文字块（顶部标题下方） */
+.blessing-block {
+  position: absolute;
+  top: clamp(96px, 17vh, 150px);
+  left: 50%; transform: translateX(-50%);
+  width: min(88vw, 560px);
+  text-align: center;
+}
+.blessing-text {
+  font-size: clamp(14px, 2.8vw, 17px);
+  line-height: 1.9;
+  letter-spacing: 2px;
+  color: var(--ink);
+  white-space: pre-wrap;
+  text-shadow: 0 1px 10px rgba(255, 244, 235, 0.9);
+}
+#edit-bless-btn { margin-top: 8px; }
+
+/* 影片控制按钮组（底部） */
+.video-hud {
+  position: absolute;
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  left: 0; right: 0;
+  display: flex; justify-content: center; gap: 10px;
+  flex-wrap: wrap;
+  padding: 0 16px;
+}
+
+/* 头像提示 */
+.avatar-hint {
+  position: absolute;
+  bottom: calc(46px + env(safe-area-inset-bottom));
+  left: 0; right: 0;
+  text-align: center;
+  font-size: 12.5px; letter-spacing: 2px;
+  color: rgba(163, 118, 126, 0.85);
+  pointer-events: none;
+}
