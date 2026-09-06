@@ -159,3 +159,38 @@
     tick();
   }
 })();
+
+/* ===== 联系方式：点击复制（微信号） ===== */
+document.querySelectorAll('.contact-pill[data-copy]').forEach(function (el) {
+  el.addEventListener('click', function () {
+    var text = el.getAttribute('data-copy');
+    var done = function () {
+      var label = el.querySelector('.pill-label');
+      if (!label) return;
+      var original = label.textContent;
+      label.textContent = '已复制 ✓';
+      el.classList.add('copied');
+      setTimeout(function () {
+        label.textContent = original;
+        el.classList.remove('copied');
+      }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(function () { fallbackCopy(text); done(); });
+    } else {
+      fallbackCopy(text);
+      done();
+    }
+  });
+});
+
+function fallbackCopy(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch (e) { /* 忽略 */ }
+  document.body.removeChild(ta);
+}

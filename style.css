@@ -514,6 +514,21 @@ ul { list-style: none; }
   box-shadow: 0 12px 28px rgba(233, 69, 96, 0.25);
 }
 
+/* button 形式的联系方式（微信，点击复制） */
+button.contact-pill {
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  cursor: pointer;
+  text-align: left;
+}
+
+.contact-pill.copied {
+  border-color: rgba(82, 196, 128, 0.7);
+  background: rgba(82, 196, 128, 0.12);
+}
+.contact-pill.copied svg { color: #52c480; }
+
 /* ==========================================================================
    页脚
    ========================================================================== */
