@@ -1,2 +1,11 @@
+# Cloudflare Pages 配置
+# 项目类型：纯静态站点（HTML/CSS/JS，无 package.json，无构建步骤）
+
 name = "landscape"
+
+# 构建输出目录 = 仓库根目录（index.html / portfolio/ 均在根目录，原样部署）
 pages_build_output_dir = "."
+
+# 注意：Cloudflare Pages 的 Git 集成中，构建命令由 Dashboard 控制而非此文件。
+# 纯静态站点请在 Dashboard 中将 Build command 设为 None（留空），否则会因
+# 不存在 package.json 而构建失败。
