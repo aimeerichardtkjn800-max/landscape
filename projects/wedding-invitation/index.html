@@ -16,15 +16,7 @@
   <script src="js/storage.js"></script>
   <script src="js/music.js"></script>
 
-  <!-- Three.js 模块映射（本地化，无外部 CDN 依赖） -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "./vendor/three/three.module.js",
-      "three/addons/": "./vendor/three/addons/"
-    }
-  }
-  </script>
+  <!-- Three.js 已打包进 js/bundle.js（经典脚本，file:// 双击与任意静态托管均可运行） -->
 </head>
 <body>
 
@@ -44,9 +36,9 @@
     </defs>
   </svg>
 
-  <!-- 顶级加载失败提示（CDN 不可用时由 main.js 填充） -->
+  <!-- 顶级加载失败提示（脚本缺失/被拦截时由看门狗显示） -->
   <div id="load-fallback" hidden>
-    <p>部分在线资源加载失败，请检查网络后重试。</p>
+    <p>页面脚本未能加载，请确认整个文件夹完整下载后重新打开。</p>
     <button type="button" id="load-retry">重新加载</button>
   </div>
 
@@ -251,7 +243,7 @@
   <video id="video-el" muted loop playsinline preload="auto"
          style="position:fixed;left:-100px;top:-100px;width:2px;height:2px;opacity:0;pointer-events:none"></video>
 
-  <!-- 模块加载看门狗：importmap/CDN 失败或超时时给出提示 -->
+  <!-- 启动看门狗：脚本缺失/被拦截或 12 秒内未启动时给出提示 -->
   <script>
     window.__cardBootOK = false;
     function showFallback() {
@@ -260,16 +252,18 @@
     }
     window.addEventListener("error", function (e) {
       if (window.__cardBootOK) return;
-      var src = String((e && (e.filename || e.target && e.target.src)) || "");
-      if (/unpkg|jsdelivr|three|gsap|module/i.test(src)) showFallback();
+      var t = e && e.target;
+      var src = String((t && (t.src || t.href)) || "");
+      /* 只把本站核心脚本/字体样式的缺失视为致命（忽略浏览器插件等注入脚本） */
+      if (/(js\/(bundle|utils|storage|music)\.js|ma-shan-zheng\.css)(\?|$)/.test(src)) showFallback();
     }, true);
     setTimeout(function () {
       if (!window.__cardBootOK) showFallback();
-    }, 15000);
+    }, 12000);
     document.addEventListener("click", function (e) {
       if (e.target && e.target.id === "load-retry") location.reload();
     });
   </script>
-  <script type="module" src="js/main.js"></script>
+  <script src="js/bundle.js"></script>
 </body>
 </html>
