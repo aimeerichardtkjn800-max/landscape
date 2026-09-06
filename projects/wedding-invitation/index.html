@@ -7,8 +7,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>囍 · 婚礼邀请函</title>
-  <link rel="preconnect" href="https://unpkg.com" crossorigin />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/ma-shan-zheng@5/index.css" />
+  <!-- 楷书字体（本地化，无外部 CDN 依赖） -->
+  <link rel="stylesheet" href="vendor/fonts/ma-shan-zheng.css" />
   <link rel="stylesheet" href="css/base.css" />
 
   <!-- 经典脚本：工具 / 存储 / 音乐 -->
@@ -16,12 +16,12 @@
   <script src="js/storage.js"></script>
   <script src="js/music.js"></script>
 
-  <!-- Three.js 模块映射 -->
+  <!-- Three.js 模块映射（本地化，无外部 CDN 依赖） -->
   <script type="importmap">
   {
     "imports": {
-      "three": "https://unpkg.com/three@latest/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@latest/examples/jsm/"
+      "three": "./vendor/three/three.module.js",
+      "three/addons/": "./vendor/three/addons/"
     }
   }
   </script>
@@ -86,11 +86,9 @@
   <!-- ============ 各章节 DOM 内容层（文字清晰可读，3D 世界在其下层纵深运动） ============ -->
   <main id="layers">
 
-    <!-- 场景 0：封面（3D 信封 + 囍字） -->
+    <!-- 场景 0：封面（3D 卷轴 + 灯笼，点击解绳展开） -->
     <section class="invite-section center" data-station="0">
-      <p class="kicker" data-animate>WEDDING&nbsp;&nbsp;INVITATION</p>
-      <p class="cover-line" data-animate>— 喜 结 良 缘 —</p>
-      <p id="open-hint" data-animate>轻触信封 · 开启邀请函</p>
+      <p id="open-hint" data-animate>轻触卷轴 · 解开红绳</p>
     </section>
 
     <!-- 场景 1：请柬正文 · 新人姓名 -->

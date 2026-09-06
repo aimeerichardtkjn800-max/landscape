@@ -749,3 +749,217 @@ export function buildEnvelope() {
   g.userData.H = H;
   return g;
 }
+
+/* ---------------- 卷轴画心纹理（红绢金囍） ---------------- */
+export function makeScrollTexture(w = 512, h = 704) {
+  const { canvas, ctx } = makeCanvas(w, h);
+
+  /* 朱砂绢底 */
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, "#b21e2c");
+  bg.addColorStop(0.5, "#931724");
+  bg.addColorStop(1, "#6e0f1a");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  /* 织锦暗纹（菱格） */
+  ctx.save();
+  ctx.strokeStyle = "rgba(240,214,138,.07)";
+  ctx.lineWidth = 1;
+  const step = w * 0.09;
+  for (let x = -h; x < w + h; x += step) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + h, h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x, h); ctx.lineTo(x + h, 0); ctx.stroke();
+  }
+  ctx.restore();
+
+  /* 金色双线边框 */
+  ctx.strokeStyle = "rgba(240,214,138,.92)";
+  ctx.lineWidth = 5;
+  ctx.strokeRect(w * 0.07, h * 0.045, w * 0.86, h * 0.91);
+  ctx.strokeStyle = "rgba(156,107,38,.75)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(w * 0.10, h * 0.07, w * 0.80, h * 0.86);
+
+  /* 四角祥云角花 */
+  ctx.strokeStyle = "rgba(240,214,138,.85)";
+  ctx.lineWidth = 3;
+  const corner = (cx, cy, sx, sy) => {
+    ctx.save();
+    ctx.translate(cx, cy); ctx.scale(sx, sy);
+    spiral(ctx, 0, 0, w * 0.075, 1.4, 1);
+    ctx.restore();
+  };
+  corner(w * 0.14, h * 0.12, 1, 1);
+  corner(w * 0.86, h * 0.12, -1, 1);
+  corner(w * 0.14, h * 0.88, 1, -1);
+  corner(w * 0.86, h * 0.88, -1, -1);
+
+  /* 文字 */
+  goldText(ctx, "百 年 好 合", w / 2, h * 0.13, h * 0.058);
+  goldText(ctx, "囍", w / 2, h * 0.47, h * 0.40);
+  goldText(ctx, "请 柬", w / 2, h * 0.78, h * 0.12);
+  goldText(ctx, "恭 请 光 临", w / 2, h * 0.905, h * 0.045);
+  return toTexture(canvas);
+}
+
+/* ================= 卷轴（开场互动：解绳 → 摊开） ================= */
+export function buildScroll() {
+  const g = new THREE.Group();
+  const W = 3.4, H = 4.4;
+
+  const redRodMat = new THREE.MeshStandardMaterial({
+    color: 0x7a0f1c, roughness: 0.45, metalness: 0.25,
+    emissive: 0x2a0508, emissiveIntensity: 0.4,
+  });
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: 0xd4af37, metalness: 0.8, roughness: 0.28,
+    emissive: 0x3a2a08, emissiveIntensity: 0.45,
+  });
+  const ropeMat = new THREE.MeshStandardMaterial({
+    color: 0xd23a3a, roughness: 0.6, metalness: 0.1,
+    emissive: 0x4a0a10, emissiveIntensity: 0.4,
+  });
+
+  /* ---------- 画心（可展开纸面，顶点逐排摊开） ---------- */
+  const paperGeo = new THREE.PlaneGeometry(W, H, 1, 64);
+  paperGeo.translate(0, -H / 2, 0);          // 顶点 y：0（天杆处）→ -H（地杆处）
+  const baseY = paperGeo.attributes.position.array.slice();
+  const paperMat = new THREE.MeshStandardMaterial({
+    map: makeScrollTexture(512, 704),
+    roughness: 0.62, metalness: 0.08,
+    emissive: 0x2a0508, emissiveIntensity: 0.32,
+    side: THREE.DoubleSide,
+  });
+  const paper = new THREE.Mesh(paperGeo, paperMat);
+  paper.position.z = 0.02;
+  g.add(paper);
+
+  /* ---------- 天杆（细）+ 金轴头 ---------- */
+  const topRod = new THREE.Group();
+  const topBar = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, W + 0.3, 20), redRodMat);
+  topBar.rotation.z = Math.PI / 2;
+  topRod.add(topBar);
+  [-1, 1].forEach((s) => {
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.14, 16), goldMat);
+    cap.rotation.z = Math.PI / 2;
+    cap.position.x = s * (W / 2 + 0.18);
+    topRod.add(cap);
+  });
+  g.add(topRod);
+
+  /* ---------- 地杆（粗）+ 金轴头 ---------- */
+  const bottomRod = new THREE.Group();
+  const botBar = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, W + 0.42, 22), redRodMat);
+  botBar.rotation.z = Math.PI / 2;
+  bottomRod.add(botBar);
+  [-1, 1].forEach((s) => {
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.16, 16), goldMat);
+    cap.rotation.z = Math.PI / 2;
+    cap.position.x = s * (W / 2 + 0.27);
+    bottomRod.add(cap);
+  });
+  g.add(bottomRod);
+
+  /* ---------- 挂绳（天杆两端汇于上方金环） ---------- */
+  const cordLen = Math.sqrt(Math.pow(W / 2 - 0.1, 2) + Math.pow(1.5, 2));
+  const cordAngle = Math.atan2(W / 2 - 0.1, 1.5);
+  [-1, 1].forEach((s) => {
+    const cord = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.016, 0.016, cordLen, 6), goldMat
+    );
+    cord.position.set(s * (W / 2 - 0.1) / 2, 0.78, 0);
+    cord.rotation.z = s * cordAngle;
+    g.add(cord);
+  });
+  const hook = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.022, 10, 32), goldMat);
+  hook.position.set(0, 1.56, 0);
+  g.add(hook);
+
+  /* ---------- 红绳（系于卷腰）+ 囍坠 ---------- */
+  const ropeGroup = new THREE.Group();
+  /* 绳圈（环绕卷轴） */
+  const band = new THREE.Mesh(new THREE.TorusGeometry(0.38, 0.032, 10, 48), ropeMat);
+  band.rotation.y = Math.PI / 2;
+  band.position.y = -0.18;
+  ropeGroup.add(band);
+  /* 绳结 */
+  const knot = new THREE.Mesh(new THREE.SphereGeometry(0.085, 14, 12), ropeMat);
+  knot.position.set(0, -0.18, 0.38);
+  ropeGroup.add(knot);
+  /* 垂绳 */
+  const string = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 8), ropeMat);
+  string.position.set(0, -0.5, 0.38);
+  ropeGroup.add(string);
+  /* 囍坠 */
+  const charm = new THREE.Group();
+  const charmMat = new THREE.MeshStandardMaterial({
+    map: makeXiTexture(256, { ring: false }),
+    roughness: 0.4, metalness: 0.35,
+    emissive: 0x3a0a10, emissiveIntensity: 0.5,
+  });
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.28, 40), charmMat);
+  charm.add(disc);
+  const charmRing = new THREE.Mesh(new THREE.TorusGeometry(0.285, 0.025, 10, 40), goldMat);
+  charmRing.position.z = 0.02;
+  charm.add(charmRing);
+  const bead = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), goldMat);
+  bead.position.y = 0.32;
+  charm.add(bead);
+  charm.position.set(0, -0.92, 0.38);
+  ropeGroup.add(charm);
+  g.add(ropeGroup);
+
+  /* ---------- 背后柔光晕 ---------- */
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: makeGlowTexture(256, [255, 190, 110]),
+    transparent: true, opacity: 0.26,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  glow.scale.set(W * 2.1, H * 1.7, 1);
+  glow.position.set(0, -H / 2, -0.9);
+  g.add(glow);
+
+  /* 收集可淡出材质 */
+  const fadeMats = [];
+  g.traverse((o) => {
+    if (o.material) {
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      mats.forEach((m) => { if (!fadeMats.includes(m)) fadeMats.push(m); });
+    }
+  });
+
+  g.userData = {
+    W, H, paper, paperGeo, baseY,
+    topRod, bottomRod, ropeGroup, band, charm,
+    paperMat, charmMat, glow, fadeMats, p: 0,
+  };
+  updateScroll(g, 0);
+  return g;
+}
+
+/* 卷轴展开进度 p：0 卷起 → 1 完全摊开 */
+export function updateScroll(g, p) {
+  const { H, paperGeo, baseY, topRod, bottomRod } = g.userData;
+  g.userData.p = p;
+  const e = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;  // easeInOut
+  const topY = 0.06 * e;
+  const botY = -0.26 + (-H - 0.02 + 0.26) * e;
+  topRod.position.y = topY;
+  bottomRod.position.y = botY;
+
+  const pos = paperGeo.attributes.position;
+  const flatLen = e * H;
+  for (let i = 0; i < pos.count; i++) {
+    const s = -baseY[i * 3 + 1];            // 距天杆的纸面长度
+    if (s <= flatLen) {
+      pos.setY(i, topY - s);
+      pos.setZ(i, 0);
+    } else {
+      /* 未摊开部分藏于地杆筒内 */
+      pos.setY(i, botY + 0.04);
+      pos.setZ(i, -0.2);
+    }
+  }
+  pos.needsUpdate = true;
+}

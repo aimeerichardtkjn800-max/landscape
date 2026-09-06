@@ -11,8 +11,8 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import {
   makeXiTexture, makeCloudTexture, makePetalTexture, makeFleckTexture,
   makeMagpieTexture, buildLantern, buildPhotoFrame, buildScreen,
-  buildMedallion, buildRibbon, buildEnvelope,
-  makeSealTexture, makeCardTexture, makePlaceholderTexture, makeScreenTexture,
+  buildRibbon, buildScroll, updateScroll,
+  makeScrollTexture, makePlaceholderTexture, makeScreenTexture,
 } from "./factory.js";
 
 const App = window.App;
@@ -22,18 +22,28 @@ function easeInOut(p) {
   return p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
 }
 function animTo(delay, dur, items, onComplete) {
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    items.forEach((it) => it.set(it.to));
+    if (onComplete) onComplete();
+  };
   setTimeout(() => {
     const starts = items.map((it) => it.get());
     const t0 = performance.now();
     const step = () => {
+      if (done) return;
       const p = Math.min(1, (performance.now() - t0) / (dur * 1000));
       const e = easeInOut(p);
       items.forEach((it, i) => it.set(starts[i] + (it.to - starts[i]) * e));
       if (p < 1) requestAnimationFrame(step);
-      else if (onComplete) onComplete();
+      else finish();
     };
     requestAnimationFrame(step);
   }, delay * 1000);
+  /* 保底：后台标签页 rAF 被冻结时，计时器仍能让动画落终态 */
+  setTimeout(finish, (delay + dur + 0.2) * 1000);
 }
 
 /* ================= 配置 ================= */
@@ -117,27 +127,18 @@ const clickable = [];              // 射线检测对象
 const fontTexturedMats = [];       // 字体加载后需重绘的材质
 const rnd = App.hashRandom("wedding-invite");
 
-/* ---------- 囍字金匾（封面视觉焦点） ---------- */
-const medallion = buildMedallion(2.3);
-medallion.position.set(0, 0.55, -3.2);
-scene.add(medallion);
-tickers.push((t) => {
-  medallion.rotation.y = Math.sin(t * 0.5) * 0.18;
-  medallion.position.y = 0.55 + Math.sin(t * 0.7) * 0.12;
-});
-fontTexturedMats.push(medallion.children[0].material);
-
-/* ---------- 红金信封（开场互动） ---------- */
-const envelope = buildEnvelope();
-envelope.position.set(0, -0.45, 0.6);
-envelope.scale.setScalar(1.05);
-scene.add(envelope);
-envelope.traverse((o) => { if (o.isMesh) { o.userData.kind = "envelope"; clickable.push(o); } });
-fontTexturedMats.push(envelope.userData.seal.material, envelope.userData.card.material);
+/* ---------- 卷轴（封面唯一主角：解绳 → 摊开 → 入场） ---------- */
+const scrollGroup = buildScroll();
+scrollGroup.position.set(0, App.isMobile ? 1.05 : 1.25, 0.6);
+scrollGroup.scale.setScalar(App.isMobile ? 0.82 : 1.0);
+scene.add(scrollGroup);
+scrollGroup.traverse((o) => { if (o.isMesh) { o.userData.kind = "scroll"; clickable.push(o); } });
+fontTexturedMats.push(scrollGroup.userData.paperMat, scrollGroup.userData.charmMat);
+const scrollBaseY = scrollGroup.position.y;
 tickers.push((t) => {
   if (!opened) {
-    envelope.position.y = -0.45 + Math.sin(t * 0.9) * 0.1;
-    envelope.rotation.y = pointer.x * 0.12 + Math.sin(t * 0.4) * 0.04;
+    scrollGroup.position.y = scrollBaseY + Math.sin(t * 0.8) * 0.09;
+    scrollGroup.rotation.y = pointer.x * 0.1 + Math.sin(t * 0.4) * 0.03;
   }
 });
 
@@ -198,12 +199,12 @@ tickers.push((t) => {
 
 /* ---------- 红绸（头顶飘带） ---------- */
 const ribbonPts1 = [
-  new THREE.Vector3(6.5, 6.2, 12), new THREE.Vector3(-4, 5.6, -20),
+  new THREE.Vector3(6.5, 6.2, -8), new THREE.Vector3(-4, 5.6, -24),
   new THREE.Vector3(5, 6.4, -55), new THREE.Vector3(-5.5, 5.8, -90),
   new THREE.Vector3(4, 6.2, -125),
 ];
 const ribbonPts2 = [
-  new THREE.Vector3(-6.5, 6.6, 8), new THREE.Vector3(4.5, 5.9, -25),
+  new THREE.Vector3(-6.5, 6.6, -10), new THREE.Vector3(4.5, 5.9, -28),
   new THREE.Vector3(-5, 6.5, -60), new THREE.Vector3(5.5, 5.7, -95),
   new THREE.Vector3(-4, 6.3, -128),
 ];
@@ -320,7 +321,7 @@ const fleckGeo = new THREE.BufferGeometry();
 const fleckPos = new Float32Array(FLECK_COUNT * 3);
 const fleckData = [];
 for (let i = 0; i < FLECK_COUNT; i++) {
-  const d = { x: (rnd() * 2 - 1) * xRange, y: -2 + rnd() * 11, z: 14 - rnd() * 140, speed: 0.3 + rnd() * 0.4, phase: rnd() * 6.28 };
+  const d = { x: (rnd() * 2 - 1) * xRange, y: -2 + rnd() * 11, z: -6 - rnd() * 120, speed: 0.3 + rnd() * 0.4, phase: rnd() * 6.28 };
   fleckData.push(d);
   fleckPos[i * 3] = d.x; fleckPos[i * 3 + 1] = d.y; fleckPos[i * 3 + 2] = d.z;
 }
@@ -388,60 +389,53 @@ window.addEventListener("pointerup", (e) => {
   const hits = raycaster.intersectObjects(clickable, false);
   if (!hits.length) return;
   const { kind, slot } = hits[0].object.userData;
-  if (kind === "envelope") openEnvelope();
+  if (kind === "scroll") openScroll();
   else if (kind === "frame") onFrameClick(slot);
   else if (kind === "video") toggleVideo();
 });
 
-/* ================= 信封开场 ================= */
-function openEnvelope() {
+/* ================= 卷轴开场：解绳 → 摊开 → 穿入 ================= */
+function openScroll() {
   if (opening || opened) return;
   opening = true;
   App.$("#open-hint").style.opacity = "0";
   try { App.music.play(); } catch (e) {}   // 在用户手势内启动音频（iOS 兼容）
 
-  const { flap, seal, card } = envelope.userData;
-  seal.material.transparent = true;
-  card.material.transparent = true;
+  const ud = scrollGroup.userData;
+  const { ropeGroup, band, fadeMats } = ud;
+  const ropeMat = band.material;
+  const charmMat = ud.charmMat;
+  ropeMat.transparent = true;
+  charmMat.transparent = true;
 
-  /* 收集信封本体材质（不含内卡），用于整体淡去 */
-  const fadeMats = [];
-  envelope.traverse((o) => {
-    if (o.isMesh && o.material && o !== card) {
-      o.material.transparent = true;
-      fadeMats.push(o.material);
-    }
-  });
-
-  /* 火漆碎裂淡出 */
+  /* ① 红绳松脱：绳圈先胀开，随后整段绳与囍坠坠落淡出 */
   animTo(0, 0.35, [
-    { get: () => seal.scale.x, set: (v) => seal.scale.setScalar(v), to: 1.5 },
-    { get: () => seal.material.opacity, set: (v) => { seal.material.opacity = v; }, to: 0 },
+    { get: () => band.scale.x, set: (v) => band.scale.setScalar(v), to: 1.4 },
   ]);
-  /* 封盖掀开 */
-  animTo(0.25, 0.95, [
-    { get: () => flap.rotation.x, set: (v) => { flap.rotation.x = v; }, to: 2.45 },
+  animTo(0.3, 1.05, [
+    { get: () => ropeGroup.position.y, set: (v) => { ropeGroup.position.y = v; }, to: -2.4 },
+    { get: () => ropeGroup.rotation.z, set: (v) => { ropeGroup.rotation.z = v; }, to: 0.45 },
+    { get: () => ropeMat.opacity, set: (v) => { ropeMat.opacity = v; }, to: 0 },
+    { get: () => charmMat.opacity, set: (v) => { charmMat.opacity = v; }, to: 0 },
+  ], () => { ropeGroup.visible = false; });
+
+  /* ② 卷轴缓缓摊开（2.6s） */
+  const sp = { p: 0 };
+  animTo(0.75, 2.6, [
+    { get: () => sp.p, set: (v) => { sp.p = v; updateScroll(scrollGroup, v); }, to: 1 },
   ]);
-  /* 请柬卡升出 */
-  animTo(0.7, 0.9, [
-    { get: () => card.position.y, set: (v) => { card.position.y = v; }, to: -0.15 },
-    { get: () => card.scale.x, set: (v) => card.scale.setScalar(v), to: 1.08 },
-  ]);
-  /* 相机穿入第一章 */
-  animTo(1.15, 1.5, [
+
+  /* ③ 相机穿入第一章，卷轴整体淡出 */
+  fadeMats.forEach((m) => { m.transparent = true; });
+  animTo(3.7, 1.4, [
     { get: () => camera.position.z, set: (v) => { camera.position.z = v; }, to: CAM_START - SPACING },
   ]);
-  /* 信封整体淡去 */
-  animTo(1.5, 0.7, fadeMats.map((m) => ({
+  animTo(4.1, 0.9, fadeMats.map((m) => ({
     get: () => m.opacity, set: (v) => { m.opacity = v; }, to: 0,
-  })));
-  /* 内卡淡出，完成开启动画 */
-  animTo(1.7, 0.6, [
-    { get: () => card.material.opacity, set: (v) => { card.material.opacity = v; }, to: 0 },
-  ], () => {
+  })), () => {
     opened = true;
     opening = false;
-    envelope.visible = false;
+    scrollGroup.visible = false;
     document.body.classList.add("opened");
     App.$("#scroll-hint").hidden = false;
     scroll.target = scroll.cur = 1;        // 落位「请柬」章
@@ -798,9 +792,10 @@ if (document.fonts && document.fonts.ready) {
       if (mat && mat.map) { mat.map.needsUpdate = true; }
     });
     /* 含汉字的程序化纹理需要重画（Ma Shan Zheng 到达后） */
-    medallion.children[0].material.map = makeXiTexture(512, { ring: false });
-    envelope.userData.seal.material.map = makeSealTexture(256);
-    envelope.userData.card.material.map = makeCardTexture(512, 384);
+    scrollGroup.userData.paperMat.map = makeScrollTexture(512, 704);
+    scrollGroup.userData.paperMat.needsUpdate = true;
+    scrollGroup.userData.charmMat.map = makeXiTexture(256, { ring: false });
+    scrollGroup.userData.charmMat.needsUpdate = true;
     frames.forEach((f) => {
       if (!f.filled) {
         f.group.userData.photoMat.map = makePlaceholderTexture(512, 649);
@@ -849,10 +844,17 @@ function autoDegrade(now) {
 let lastFrame = performance.now();
 let elapsed = 0;
 let lastStation = -1;
+let lastTickRun = 0;
 
 function tick() {
+  /* 双通道调度：rAF 为主；标签页被节流/后台冻结时由 setTimeout 兜底 */
+  const now0 = performance.now();
+  if (now0 - lastTickRun < 8) return;
+  lastTickRun = now0;
   requestAnimationFrame(tick);
-  const now = performance.now();
+  setTimeout(() => { if (performance.now() - lastTickRun > 140) tick(); }, 150);
+
+  const now = now0;
   const dt = Math.min((now - lastFrame) / 1000, 0.05);
   lastFrame = now;
   elapsed += dt;
@@ -894,7 +896,7 @@ window.__cardBootOK = true;
 
 /* 调试接口（自动化验证用） */
 window.__invite = {
-  open: openEnvelope,
+  open: openScroll,
   go: goTo,
   get opened() { return opened; },
   get station() { return activeStation; },
