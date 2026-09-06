@@ -258,8 +258,27 @@
       if (/(js\/(bundle|utils|storage|music)\.js|ma-shan-zheng\.css)(\?|$)/.test(src)) showFallback();
     }, true);
     setTimeout(function () {
-      if (!window.__cardBootOK) showFallback();
-    }, 12000);
+  var canvas = document.getElementById('world-canvas');
+  if (canvas && canvas.getAttribute('data-engine')) {
+    window.__cardBootOK = true;
+    var fb = document.getElementById('load-fallback');
+    if (fb) fb.style.display = 'none';
+    return;
+  }
+  if (!window.__cardBootOK) showFallback();
+}, 12000);
+
+var __checkCount = 0;
+var __checkTimer = setInterval(function () {
+  __checkCount++;
+  var canvas = document.getElementById('world-canvas');
+  if (canvas && canvas.getAttribute('data-engine') && !window.__cardBootOK) {
+    window.__cardBootOK = true;
+    var fb = document.getElementById('load-fallback');
+    if (fb) fb.style.display = 'none';
+  }
+  if (__checkCount >= 10 || window.__cardBootOK) clearInterval(__checkTimer);
+}, 2000);
     document.addEventListener("click", function (e) {
       if (e.target && e.target.id === "load-retry") location.reload();
     });
