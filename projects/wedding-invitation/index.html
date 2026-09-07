@@ -257,7 +257,7 @@
       /* 只把本站核心脚本/字体样式的缺失视为致命（忽略浏览器插件等注入脚本） */
       if (/(js\/(bundle|utils|storage|music)\.js|ma-shan-zheng\.css)(\?|$)/.test(src)) showFallback();
     }, true);
-(function checkAndHide() {
+function checkAndHide() {
   var canvas = document.getElementById('world-canvas');
   if (canvas && canvas.getAttribute('data-engine')) {
     window.__cardBootOK = true;
@@ -266,7 +266,9 @@
     return true;
   }
   return false;
-})();
+}
+
+checkAndHide();
 
 var __checkCount = 0;
 var __checkTimer = setInterval(function () {
