@@ -148,6 +148,13 @@
   const DEFAULT_TRACK = "audio/zanmen-jiehun-ba.mp3";
   audio.src = DEFAULT_TRACK;
 
+  /* 循环播放兜底：正常情况下 audio.loop=true 已无缝循环；
+     个别浏览器/切歌场景触发 ended 时，自动从头重播 */
+  audio.addEventListener("ended", () => {
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  });
+
   const state = { mode: "file", playing: false, listeners: [] };
 
   function emit() {

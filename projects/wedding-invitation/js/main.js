@@ -13,8 +13,8 @@ import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
 import {
   makeXiTexture, makeCloudTexture, makePetalTexture, makeFleckTexture,
   makeMagpieTexture, makeGlowTexture, buildLantern, buildPhotoFrame,
-  buildScreen, buildRibbon, buildScroll, updateScroll,
-  makeScrollTexture, makePlaceholderTexture, makeScreenTexture,
+  buildRibbon, buildScroll, updateScroll,
+  makeScrollTexture, makePlaceholderTexture,
 } from "./factory.js";
 
 const App = window.App;
@@ -78,6 +78,19 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[0].prCap))
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
+
+/* 纹理清晰度：各向异性过滤（斜看不糊）+ 线性 mip + sRGB 色彩空间 */
+const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
+function enrichTexture(tex) {
+  if (!tex) return tex;
+  tex.anisotropy = MAX_ANISO;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  if (tex.colorSpace === THREE.NoColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x2a060a, 0.015);
@@ -228,15 +241,15 @@ tickers.push((t) => {
   });
 });
 
-/* ---------- 灯笼（章节成对悬挂） ---------- */
+/* ---------- 灯笼（章节成对悬挂，提绳顶端挂到头顶红绸） ---------- */
 const lanterns = [];
 for (let i = 1; i < STATIONS; i++) {
   const pair = i % 2 === 1 ? [-1, 1] : [1, -1];
   pair.forEach((side) => {
     const l = buildLantern(App.isMobile ? 0.72 : 0.95);
     l.position.set(
-      side * (App.isMobile ? 1.9 : 3.7) + (rnd() - 0.5) * 0.5,
-      4.1 + rnd() * 0.5,
+      side * (App.isMobile ? 1.9 : 3.1) + (rnd() - 0.5) * 0.4,
+      (App.isMobile ? 4.0 : 3.6) + rnd() * 0.25,
       stationZ(i) + 2.5 + (rnd() - 0.5) * 2
     );
     scene.add(l);
@@ -265,13 +278,14 @@ const ribbonPts2 = [
 scene.add(buildRibbon(ribbonPts1, 0.09));
 scene.add(buildRibbon(ribbonPts2, 0.07));
 
-/* ---------- 窗棂相框（内容层 · 婚纱照 ×3） ---------- */
+/* ---------- 窗棂相框（内容层 · 婚纱照 ×4，原视频位改为相框） ---------- */
 const FRAME_W = 3.0, FRAME_H = 3.8;
 const frames = [];
 const frameSlots = [
   { station: 2, side: -1 },
   { station: 3, side: 1 },
-  { station: 5, side: -1 },
+  { station: 4, side: -1 },
+  { station: 5, side: 1 },
 ];
 frameSlots.forEach((cfg, idx) => {
   const slot = idx + 1;
@@ -297,24 +311,6 @@ frames.forEach((f, i) => {
     f.group.rotation.z = Math.sin(t * 0.7 + i * 1.7) * 0.012;
   });
 });
-
-/* ---------- 视频银幕（内容层 · 恋爱影片） ---------- */
-const screenGroup = buildScreen(5.2, 2.93);
-if (App.isMobile) {
-  screenGroup.position.set(0, 1.9, stationZ(4));
-  screenGroup.scale.setScalar(0.66);
-} else {
-  screenGroup.position.set(0, 1.15, stationZ(4));
-}
-screenGroup.userData.kind = "video";
-screenGroup.traverse((o) => { if (o.isMesh) { o.userData.kind = "video"; clickable.push(o); } });
-scene.add(screenGroup);
-fontTexturedMats.push(screenGroup.userData.screenMat);
-const screenBaseY = screenGroup.position.y;
-tickers.push((t) => {
-  screenGroup.position.y = screenBaseY + Math.sin(t * 0.7) * 0.08;
-});
-let screenPlaceholderTex = screenGroup.userData.screenMat.map;
 
 /* ---------- 喜鹊精灵（点缀） ---------- */
 {
@@ -533,7 +529,6 @@ window.addEventListener("pointerup", (e) => {
   const { kind, slot } = hits[0].object.userData;
   if (kind === "scroll") openScroll();
   else if (kind === "frame") onFrameClick(slot);
-  else if (kind === "video") toggleVideo();
 });
 
 /* ================= 卷轴开场：解绳 → 摊开 → 穿入 ================= */
@@ -645,9 +640,6 @@ function activateStation(i) {
       delay += dur;
     });
   }
-  /* 影片章：自动尝试静音播放；离开暂停 */
-  if (i === 4 && videoState.ready) tryPlayVideo();
-  if (i !== 4 && videoState.ready) videoEl.pause();
 }
 
 /* ================= 毛笔书写 / 墨迹动画 ================= */
@@ -753,7 +745,7 @@ function setPhoto(slot, blob) {
   slotUrls[slot] = url;
   new THREE.TextureLoader().load(url, (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = 4;
+    enrichTexture(tex);
     const old = rec.group.userData.photoMat.map;
     rec.group.userData.photoMat.map = tex;
     rec.group.userData.photoMat.needsUpdate = true;
@@ -776,10 +768,11 @@ photoInput.addEventListener("change", async () => {
   photoInput.value = "";
   if (!files.length) return;
   let slot = pendingSlot;
+  const maxSlot = frames.length;
   for (const file of files) {
-    while (slot <= 3 && frames.find((f) => f.slot === slot).filled) slot++;
-    if (slot > 3) break;
-    const blob = await App.fitImage(file, 1600);
+    while (slot <= maxSlot && frames.find((f) => f.slot === slot).filled) slot++;
+    if (slot > maxSlot) break;
+    const blob = await App.fitImage(file, 2400);
     try {
       await App.db.putFile(`photo-${slot}`, blob);
       setPhoto(slot, blob);
@@ -822,66 +815,6 @@ lightbox.addEventListener("click", (e) => {
   if (e.target === lightbox) lightbox.classList.remove("open");
 });
 
-/* ================= 恋爱影片 ================= */
-const videoEl = App.$("#video-el");
-const videoInput = App.$("#input-video");
-const videoState = { ready: false, texture: null };
-
-function setupVideo(blob) {
-  const url = URL.createObjectURL(blob);
-  videoEl.src = url;
-  videoEl.muted = true;
-  videoState.texture = new THREE.VideoTexture(videoEl);
-  videoState.texture.colorSpace = THREE.SRGBColorSpace;
-  screenGroup.userData.screenMat.map = videoState.texture;
-  screenGroup.userData.screenMat.needsUpdate = true;
-  videoState.ready = true;
-  App.$("#upload-video-btn").textContent = "更换影片";
-  App.$("#play-video-btn").hidden = false;
-  App.$("#remove-video-btn").hidden = false;
-}
-function tryPlayVideo() {
-  videoEl.play().catch(() => {});
-}
-function toggleVideo() {
-  if (!videoState.ready) { videoInput.click(); return; }
-  if (videoEl.paused) tryPlayVideo();
-  else videoEl.pause();
-}
-App.$("#upload-video-btn").addEventListener("click", () => videoInput.click());
-App.$("#play-video-btn").addEventListener("click", toggleVideo);
-App.$("#remove-video-btn").addEventListener("click", async () => {
-  videoEl.pause();
-  videoEl.removeAttribute("src");
-  videoEl.load();
-  if (videoState.texture) videoState.texture.dispose();
-  videoState.ready = false;
-  screenGroup.userData.screenMat.map = screenPlaceholderTex;
-  screenGroup.userData.screenMat.needsUpdate = true;
-  App.$("#play-video-btn").hidden = true;
-  App.$("#remove-video-btn").hidden = true;
-  App.$("#upload-video-btn").textContent = "上传恋爱影片";
-  try { await App.db.deleteFile("video"); } catch (e) {}
-  App.toast("影片已删除");
-});
-videoInput.addEventListener("change", async () => {
-  const file = videoInput.files && videoInput.files[0];
-  videoInput.value = "";
-  if (!file) return;
-  if (file.size > 50 * 1024 * 1024) {
-    App.toast("影片请控制在 50MB 以内");
-    return;
-  }
-  try {
-    await App.db.putFile("video", file);
-    setupVideo(file);
-    App.toast("影片已上传");
-    tryPlayVideo();
-  } catch (e) {
-    App.toast("影片上传失败，请重试");
-  }
-});
-
 /* ================= 背景音乐 UI ================= */
 const musicBtn = App.$("#music-btn");
 function syncMusicIcon(s) {
@@ -910,17 +843,13 @@ App.$("#replay-btn").addEventListener("click", () => goTo(0));
 
 /* ================= 持久素材恢复 ================= */
 (async function restore() {
-  for (let slot = 1; slot <= 3; slot++) {
+  for (let slot = 1; slot <= 4; slot++) {
     try {
       const blob = await App.db.getFile(`photo-${slot}`);
       if (blob) setPhoto(slot, blob);
     } catch (e) {}
   }
-  try {
-    const vblob = await App.db.getFile("video");
-    if (vblob) setupVideo(vblob);
-  } catch (e) {}
-  /* 背景音乐默认曲目已内置《咱们结婚吧》（audio/zanmen-jiehun-ba.ogg）；
+  /* 背景音乐默认曲目已内置《咱们结婚吧》（audio/zanmen-jiehun-ba.mp3）；
      不再自动套用历史上传到 IndexedDB 的曲目，重新上传仍即时生效 */
 })();
 
@@ -931,22 +860,17 @@ if (document.fonts && document.fonts.ready) {
     fontTexturedMats.forEach((mat) => {
       if (mat && mat.map) { mat.map.needsUpdate = true; }
     });
-    /* 含汉字的程序化纹理需要重画（Ma Shan Zheng 到达后） */
-    scrollGroup.userData.paperMat.map = makeScrollTexture(512, 704);
+    /* 含汉字的程序化纹理需要重画（Ma Shan Zheng 到达后），使用高分辨率画布 */
+    scrollGroup.userData.paperMat.map = enrichTexture(makeScrollTexture(1024, 1408));
     scrollGroup.userData.paperMat.needsUpdate = true;
-    scrollGroup.userData.charmMat.map = makeXiTexture(256, { ring: false });
+    scrollGroup.userData.charmMat.map = enrichTexture(makeXiTexture(512, { ring: false }));
     scrollGroup.userData.charmMat.needsUpdate = true;
     frames.forEach((f) => {
       if (!f.filled) {
-        f.group.userData.photoMat.map = makePlaceholderTexture(512, 649);
+        f.group.userData.photoMat.map = enrichTexture(makePlaceholderTexture(512, 649));
         f.group.userData.photoMat.needsUpdate = true;
       }
     });
-    if (!videoState.ready) {
-      screenPlaceholderTex = makeScreenTexture(960, 540);
-      screenGroup.userData.screenMat.map = screenPlaceholderTex;
-      screenGroup.userData.screenMat.needsUpdate = true;
-    }
    } catch (e) { /* 字体重绘失败不影响主流程 */ }
   });
 }
@@ -979,11 +903,12 @@ let lastStation = -1;
 let lastTickRun = 0;
 
 function tick() {
-  /* 双通道调度：rAF 为主；标签页被节流/后台冻结时由 setTimeout 兜底 */
-  const now0 = performance.now();
-  if (now0 - lastTickRun < 8) return;
-  lastTickRun = now0;
+  /* 双通道调度：rAF 为主；标签页被节流/后台冻结时由 setTimeout 兜底。
+     先登记下一帧，再用 16ms 门限封顶 60fps（120/144Hz 屏跳帧但循环不死） */
   requestAnimationFrame(tick);
+  const now0 = performance.now();
+  if (now0 - lastTickRun < 16) return;
+  lastTickRun = now0;
   setTimeout(() => { if (performance.now() - lastTickRun > 140) tick(); }, 150);
 
   const now = now0;
@@ -1020,6 +945,14 @@ function tick() {
   autoDegrade(performance.now());
   composer.render();
 }
+
+/* 启动前对全场景纹理做一次性高清增强（各向异性 + 线性 mip + sRGB） */
+scene.traverse((o) => {
+  const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : null;
+  if (mats) mats.forEach((m) => {
+    ["map", "emissiveMap"].forEach((k) => { if (m && m[k] && m[k].isTexture) enrichTexture(m[k]); });
+  });
+});
 
 renderInfo();
 activateStation(0);

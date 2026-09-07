@@ -67,8 +67,8 @@ window.App = {};
   });
   App.isOverlayOpen = () => !!document.querySelector(".modal.open, .lightbox.open");
 
-  /* ---------- 图片压缩（保持比例，最长边 max 像素） ---------- */
-  App.fitImage = async (file, max = 1600) => {
+  /* ---------- 图片压缩（保持比例，最长边 max 像素；高质量重采样） ---------- */
+  App.fitImage = async (file, max = 2048) => {
     try {
       const bmp = await createImageBitmap(file);
       const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
@@ -79,10 +79,13 @@ window.App = {};
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(bmp.width * scale);
       canvas.height = Math.round(bmp.height * scale);
-      canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
       if (bmp.close) bmp.close();
       const blob = await new Promise((res) =>
-        canvas.toBlob((b) => res(b), "image/jpeg", 0.88)
+        canvas.toBlob((b) => res(b), "image/jpeg", 0.92)
       );
       return blob || file;
     } catch (err) {

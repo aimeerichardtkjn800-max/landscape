@@ -14,7 +14,10 @@ function makeCanvas(w, h) {
 function toTexture(canvas) {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
   tex.needsUpdate = true;
   return tex;
 }
@@ -482,13 +485,19 @@ export function buildLantern(scale = 1) {
   capBot.position.y = -0.55;
   g.add(capTop, capBot);
 
-  /* 提绳 */
+  /* 提绳（加长，顶端挂环用于挂到头顶红绸/主绳） */
+  const cordLen = 1.9;
   const cord = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.012, 0.012, 0.9, 6),
+    new THREE.CylinderGeometry(0.012, 0.012, cordLen, 6),
     new THREE.MeshBasicMaterial({ color: 0xd4af37 })
   );
-  cord.position.y = 1.05;
+  cord.position.y = 0.61 + cordLen / 2;
   g.add(cord);
+  /* 挂环（提绳与主绳连接） */
+  const cordRing = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.013, 8, 24), goldMat);
+  cordRing.position.y = 0.61 + cordLen;
+  cordRing.rotation.x = Math.PI / 2;
+  g.add(cordRing);
 
   /* 流苏 */
   const tassel = new THREE.Mesh(
@@ -520,17 +529,30 @@ export function buildLantern(scale = 1) {
   return g;
 }
 
-/* 窗棂金边相框（含照片平面） */
+/* 窗棂金边相框（含照片平面）——立体金边 + 卡纸衬边 + 厚度背板 */
 export function buildPhotoFrame(w, h) {
   const g = new THREE.Group();
 
-  /* 背板（深红，提供厚度与阴影） */
+  /* 背板：深红实木，带厚度与侧边阴影 */
   const back = new THREE.Mesh(
-    new THREE.BoxGeometry(w + 0.35, h + 0.35, 0.12),
-    new THREE.MeshStandardMaterial({ color: 0x3a0a10, roughness: 0.7, metalness: 0.2 })
+    new THREE.BoxGeometry(w + 0.62, h + 0.62, 0.22),
+    new THREE.MeshStandardMaterial({ color: 0x2e0810, roughness: 0.8, metalness: 0.15 })
   );
-  back.position.z = -0.08;
+  back.position.z = -0.11;
   g.add(back);
+
+  /* 卡纸衬边（暗红绢色，隔开照片与金边，像真实装裱） */
+  const linerMat = new THREE.MeshStandardMaterial({ color: 0x57101a, roughness: 0.95, metalness: 0 });
+  const linerB = 0.12;
+  const linerTop = new THREE.Mesh(new THREE.BoxGeometry(w + linerB * 2, linerB, 0.05), linerMat);
+  linerTop.position.set(0, h / 2 + linerB / 2, 0.01);
+  const linerBot = linerTop.clone();
+  linerBot.position.y = -(h / 2 + linerB / 2);
+  const linerLeft = new THREE.Mesh(new THREE.BoxGeometry(linerB, h, 0.05), linerMat);
+  linerLeft.position.set(-(w / 2 + linerB / 2), 0, 0.01);
+  const linerRight = linerLeft.clone();
+  linerRight.position.x = w / 2 + linerB / 2;
+  g.add(linerTop, linerBot, linerLeft, linerRight);
 
   /* 照片面（占位纹理，上传后替换 map）
      MeshBasicMaterial：不受暖光染色、不参与 ACES 色调映射、不受雾影响 → 照片色彩准确不发黄 */
@@ -539,17 +561,45 @@ export function buildPhotoFrame(w, h) {
     toneMapped: false, fog: false,
   });
   const photo = new THREE.Mesh(new THREE.PlaneGeometry(w, h), photoMat);
+  photo.position.z = 0.035;
   g.add(photo);
 
-  /* 金色窗棂边框（盖在照片前方外缘，中心透明） */
+  /* 立体金边：清漆物理材质，金属光泽 + 高光 */
+  const goldFrameMat = new THREE.MeshPhysicalMaterial({
+    color: 0xd9b45c, metalness: 0.65, roughness: 0.3,
+    clearcoat: 0.55, clearcoatRoughness: 0.35,
+    emissive: 0x241a06, emissiveIntensity: 0.3,
+  });
+  const t = 0.17;
+  const barH = new THREE.BoxGeometry(w + 0.56, t, 0.18);
+  const barV = new THREE.BoxGeometry(t, h + 0.4, 0.18);
+  const barTop = new THREE.Mesh(barH, goldFrameMat);
+  barTop.position.set(0, h / 2 + linerB + t / 2, 0.08);
+  const barBot = barTop.clone();
+  barBot.position.y = -(h / 2 + linerB + t / 2);
+  const barLeft = new THREE.Mesh(barV, goldFrameMat);
+  barLeft.position.set(-(w / 2 + linerB + t / 2), 0, 0.07);
+  const barRight = barLeft.clone();
+  barRight.position.x = w / 2 + linerB + t / 2;
+  g.add(barTop, barBot, barLeft, barRight);
+
+  /* 四角金钉（精致细节） */
+  const studGeo = new THREE.SphereGeometry(0.06, 12, 10);
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => {
+    const stud = new THREE.Mesh(studGeo, goldFrameMat);
+    stud.position.set(sx * (w / 2 + linerB + t / 2), sy * (h / 2 + linerB + t / 2), 0.18);
+    g.add(stud);
+  });
+
+  /* 金色窗棂花纹薄片（贴在金边上，中式装饰纹理） */
   const frameMat = new THREE.MeshStandardMaterial({
     map: makeFrameTexture(512, Math.round((512 * h) / w)),
     transparent: true,
     roughness: 0.32, metalness: 0.75,
     emissive: 0x2a1e06, emissiveIntensity: 0.35,
   });
-  const frame = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.5, h + 0.5), frameMat);
-  frame.position.z = 0.06;
+  const frame = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.62, h + 0.62), frameMat);
+  frame.position.z = 0.175;
   g.add(frame);
 
   /* 背后柔光晕 */
@@ -827,7 +877,7 @@ export function buildScroll() {
   paperGeo.translate(0, -H / 2, 0);          // 顶点 y：0（天杆处）→ -H（地杆处）
   const baseY = paperGeo.attributes.position.array.slice();
   const paperMat = new THREE.MeshStandardMaterial({
-    map: makeScrollTexture(512, 704),
+    map: makeScrollTexture(1024, 1408),
     roughness: 0.62, metalness: 0.08,
     emissive: 0x2a0508, emissiveIntensity: 0.32,
     side: THREE.DoubleSide,
@@ -895,11 +945,11 @@ export function buildScroll() {
   /* 囍坠 */
   const charm = new THREE.Group();
   const charmMat = new THREE.MeshStandardMaterial({
-    map: makeXiTexture(256, { ring: false }),
+    map: makeXiTexture(512, { ring: false }),
     roughness: 0.4, metalness: 0.35,
     emissive: 0x3a0a10, emissiveIntensity: 0.5,
   });
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.28, 40), charmMat);
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.28, 64), charmMat);
   charm.add(disc);
   const charmRing = new THREE.Mesh(new THREE.TorusGeometry(0.285, 0.025, 10, 40), goldMat);
   charmRing.position.z = 0.02;

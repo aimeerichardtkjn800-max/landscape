@@ -63,7 +63,7 @@
     <button class="dot" data-go="1" data-ripple aria-label="请柬"><span class="dot-label">请柬</span></button>
     <button class="dot" data-go="2" data-ripple aria-label="初见"><span class="dot-label">初见</span></button>
     <button class="dot" data-go="3" data-ripple aria-label="相知"><span class="dot-label">相知</span></button>
-    <button class="dot" data-go="4" data-ripple aria-label="影片"><span class="dot-label">影片</span></button>
+    <button class="dot" data-go="4" data-ripple aria-label="相恋"><span class="dot-label">相恋</span></button>
     <button class="dot" data-go="5" data-ripple aria-label="相守"><span class="dot-label">相守</span></button>
     <button class="dot" data-go="6" data-ripple aria-label="婚典"><span class="dot-label">婚典</span></button>
     <button class="dot" data-go="7" data-ripple aria-label="致谢"><span class="dot-label">致谢</span></button>
@@ -130,22 +130,21 @@
       </div>
     </section>
 
-    <!-- 场景 4：相恋 · 恋爱影片 -->
-    <section class="invite-section center video-section" data-station="4">
-      <div class="text-card video-card" data-animate>
+    <!-- 场景 4：相恋 · 婚纱照 3（相框在左，原视频银幕位） -->
+    <section class="invite-section align-right" data-station="4">
+      <div class="text-card" data-animate>
         <p class="kicker">相 恋 · OUR STORY</p>
         <h2 class="brush-title" data-brush data-speed="normal">光阴的故事</h2>
-        <div class="video-actions">
-          <button class="chip-btn accent" id="upload-video-btn" data-ripple>上传恋爱影片</button>
-          <button class="chip-btn" id="play-video-btn" data-ripple hidden>播放 / 暂停</button>
-          <button class="chip-btn small danger" id="remove-video-btn" data-ripple hidden>删除影片</button>
-        </div>
-        <p class="media-hint">轻点 3D 银幕亦可播放 · 影片 50MB 以内</p>
+        <p class="ink-body" data-ink data-speed="normal">携手走过的旅程，
+都拍成了时光里的底片，
+一帧一幕，
+皆是欢喜。</p>
+        <p class="media-hint" data-animate>轻点左侧金边相框 · 上传婚纱照</p>
       </div>
     </section>
 
-    <!-- 场景 5：相守 · 婚纱照 3（相框在左） -->
-    <section class="invite-section align-right" data-station="5">
+    <!-- 场景 5：相守 · 婚纱照 4（相框在右） -->
+    <section class="invite-section align-left" data-station="5">
       <div class="text-card" data-animate>
         <p class="kicker">相 守 · TOGETHER</p>
         <h2 class="brush-title" data-brush data-speed="normal">执手共白头</h2>
@@ -153,7 +152,7 @@
 白首不相离；
 此后晨昏与四季，
 皆有你有我。</p>
-        <p class="media-hint" data-animate>轻点左侧金边相框 · 上传婚纱照</p>
+        <p class="media-hint" data-animate>轻点右侧金边相框 · 上传婚纱照</p>
       </div>
     </section>
 
@@ -236,12 +235,9 @@
   <!-- 提示气泡 -->
   <div id="toast-wrap" aria-live="polite"></div>
 
-  <!-- 隐藏文件选择器 / 视频元素 -->
+  <!-- 隐藏文件选择器 -->
   <input type="file" id="input-photos" accept="image/*" multiple hidden />
-  <input type="file" id="input-video" accept="video/*" hidden />
   <input type="file" id="input-music" accept="audio/*" hidden />
-  <video id="video-el" muted loop playsinline preload="auto"
-         style="position:fixed;left:-100px;top:-100px;width:2px;height:2px;opacity:0;pointer-events:none"></video>
 
   <!-- 启动看门狗：脚本缺失/被拦截或 12 秒内未启动时给出提示 -->
   <script>
