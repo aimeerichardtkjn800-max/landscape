@@ -140,9 +140,15 @@
   /* ---------- 对外接口 ---------- */
   const audio = new Audio();
   audio.loop = true;
-  audio.preload = "auto";
+  /* preload="none"：播放时才发起唯一一次媒体请求。
+     auto/metadata 的初始请求会被 play() 的分段请求打断，在控制台留下 ERR_ABORTED 噪音 */
+  audio.preload = "none";
 
-  const state = { mode: "none", playing: false, listeners: [] };
+  /* 默认背景音乐：内置《咱们结婚吧》（龚成义），替换原合成古筝默认曲目 */
+  const DEFAULT_TRACK = "audio/zanmen-jiehun-ba.mp3";
+  audio.src = DEFAULT_TRACK;
+
+  const state = { mode: "file", playing: false, listeners: [] };
 
   function emit() {
     state.listeners.forEach((cb) => cb(state));
@@ -151,7 +157,13 @@
   async function play() {
     try {
       if (state.mode === "file") {
-        await audio.play();
+        try {
+          await audio.play();
+        } catch (e) {
+          /* 文件播放失败（如 Safari 不支持 ogg）→ 退回内置古筝合成 */
+          state.mode = "synth";
+          synthStart();
+        }
       } else {
         state.mode = "synth";
         synthStart();

@@ -532,10 +532,11 @@ export function buildPhotoFrame(w, h) {
   back.position.z = -0.08;
   g.add(back);
 
-  /* 照片面（占位纹理，上传后替换 map） */
-  const photoMat = new THREE.MeshStandardMaterial({
+  /* 照片面（占位纹理，上传后替换 map）
+     MeshBasicMaterial：不受暖光染色、不参与 ACES 色调映射、不受雾影响 → 照片色彩准确不发黄 */
+  const photoMat = new THREE.MeshBasicMaterial({
     map: makePlaceholderTexture(512, Math.round((512 * h) / w)),
-    roughness: 0.55, metalness: 0.05,
+    toneMapped: false, fog: false,
   });
   const photo = new THREE.Mesh(new THREE.PlaneGeometry(w, h), photoMat);
   g.add(photo);

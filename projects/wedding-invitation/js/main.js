@@ -8,6 +8,8 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
 import {
   makeXiTexture, makeCloudTexture, makePetalTexture, makeFleckTexture,
   makeMagpieTexture, makeGlowTexture, buildLantern, buildPhotoFrame,
@@ -58,21 +60,21 @@ let opened = false;
 let opening = false;
 
 /* ================= 渲染器 / 场景 ================= */
-/* 画质分档：默认档追求 60fps；autoDegrade 检测到掉帧时逐级下调。
-   注意：使用 EffectComposer 时 context 级 antialias 不作用于渲染目标，
-   改为给 composer 渲染目标开 MSAA（桌面 4x，移动靠高像素比）。 */
+/* 画质分档：默认档追求 60fps + 高清晰；autoDegrade 检测到掉帧时逐级下调。
+   抗锯齿三重保障：context antialias + composer 渲染目标 MSAA（桌面 4x）+ FXAA 后处理。
+   prCap 为像素比上限，实际像素比 = min(devicePixelRatio, prCap)，确保高清屏至少 1.5。 */
 const QUALITY = [
-  { pr: App.isMobile ? 1.5 : 1.5, samples: App.isMobile ? 0 : 4, bloomScale: App.isMobile ? 0.45 : 0.5, bloom: App.isMobile ? 0.4 : 0.55 },
-  { pr: App.isMobile ? 1.1 : 1.2, samples: 0, bloomScale: 0.45, bloom: 0.42 },
-  { pr: App.isMobile ? 0.95 : 1.0, samples: 0, bloomScale: 0.38, bloom: 0.3 },
+  { prCap: App.isMobile ? 1.5 : 2, samples: App.isMobile ? 0 : 4, bloomScale: App.isMobile ? 0.45 : 0.5, bloom: App.isMobile ? 0.38 : 0.5 },
+  { prCap: App.isMobile ? 1.2 : 1.5, samples: 0, bloomScale: 0.45, bloom: 0.4 },
+  { prCap: App.isMobile ? 1.0 : 1.25, samples: 0, bloomScale: 0.38, bloom: 0.3 },
 ];
 let qualityLevel = 0;
 
 const canvas = document.getElementById("world-canvas");
 const renderer = new THREE.WebGLRenderer({
-  canvas, antialias: false, powerPreference: "high-performance", stencil: false,
+  canvas, antialias: true, powerPreference: "high-performance", stencil: false,
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[0].pr));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[0].prCap));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
@@ -129,25 +131,30 @@ const redLight = new THREE.PointLight(0xff5a48, 14, 30, 2);
 redLight.position.set(0, -1.5, 4);
 scene.add(redLight);
 
-/* ---------- 后处理（Bloom 辉光） ----------
-   Bloom 在半分辨率缓冲上运行（辉光本就是模糊的，观感无损、填充率减半） */
+/* ---------- 后处理（Bloom 辉光 + FXAA 抗锯齿） ----------
+   Bloom 在半分辨率缓冲上运行（辉光本就是模糊的，观感无损、填充率减半）；
+   阈值 0.85：婚纱白衣不再整片泛光发雾，只保留灯笼/金字的高光辉光；
+   FXAA 置于 OutputPass 之后，在最终 LDR 画面上平滑边缘锯齿。 */
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  App.isMobile ? 0.4 : 0.55, 0.45, 0.68
+  App.isMobile ? 0.38 : 0.5, 0.45, 0.85
 );
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+const fxaaPass = new ShaderPass(FXAAShader);
+composer.addPass(fxaaPass);
 
-/* 应用某一画质档（像素比 / MSAA / Bloom 分辨率与强度） */
+/* 应用某一画质档（像素比 / MSAA / Bloom 分辨率与强度 / FXAA 分辨率） */
 function applyQuality(lv) {
   qualityLevel = lv;
   const q = QUALITY[lv];
   const w = window.innerWidth, h = window.innerHeight;
-  renderer.setPixelRatio(q.pr);
+  const pr = Math.min(window.devicePixelRatio || 1, q.prCap);
+  renderer.setPixelRatio(pr);
   renderer.setSize(w, h);
-  composer.setPixelRatio(q.pr);
+  composer.setPixelRatio(pr);
   composer.setSize(w, h);
   composer.renderTarget1.samples = q.samples;
   composer.renderTarget2.samples = q.samples;
@@ -155,10 +162,12 @@ function applyQuality(lv) {
   composer.renderTarget2.dispose();
   /* Bloom 以 bloomScale 分辨率运行 */
   bloom.setSize(
-    Math.max(2, Math.floor(w * q.pr * q.bloomScale)),
-    Math.max(2, Math.floor(h * q.pr * q.bloomScale))
+    Math.max(2, Math.floor(w * pr * q.bloomScale)),
+    Math.max(2, Math.floor(h * pr * q.bloomScale))
   );
   bloom.strength = q.bloom;
+  /* FXAA 分辨率随像素比更新 */
+  fxaaPass.material.uniforms["resolution"].value.set(1 / (w * pr), 1 / (h * pr));
   if (lv >= 2) {
     petals.count = Math.floor(PETAL_COUNT / 2);
     flecks.visible = false;
@@ -911,10 +920,8 @@ App.$("#replay-btn").addEventListener("click", () => goTo(0));
     const vblob = await App.db.getFile("video");
     if (vblob) setupVideo(vblob);
   } catch (e) {}
-  try {
-    const mblob = await App.db.getFile("music");
-    if (mblob) App.music.setFile(mblob, false);
-  } catch (e) {}
+  /* 背景音乐默认曲目已内置《咱们结婚吧》（audio/zanmen-jiehun-ba.ogg）；
+     不再自动套用历史上传到 IndexedDB 的曲目，重新上传仍即时生效 */
 })();
 
 /* ================= 字体就绪后重绘含字纹理 ================= */
