@@ -160,6 +160,40 @@ composer.addPass(new OutputPass());
 const fxaaPass = new ShaderPass(FXAAShader);
 composer.addPass(fxaaPass);
 
+/* 锐化通道（链末端微调）：拉普拉斯卷积提升照片/文字边缘锐度。
+   几何边缘已由 MSAA 4x + FXAA 处理，锐化强度保守取 0.3，
+   只做末端质感增强，不产生明显光晕 */
+const SharpenShader = {
+  uniforms: {
+    tDiffuse: { value: null },
+    resolution: { value: new THREE.Vector2(1, 1) },
+    strength: { value: 0.3 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform vec2 resolution;
+    uniform float strength;
+    varying vec2 vUv;
+    void main() {
+      vec2 texel = 1.0 / resolution;
+      vec4 color = texture2D(tDiffuse, vUv);
+      vec4 sum = texture2D(tDiffuse, vUv) * 4.0;
+      sum -= texture2D(tDiffuse, vUv + vec2(texel.x, 0.0));
+      sum -= texture2D(tDiffuse, vUv - vec2(texel.x, 0.0));
+      sum -= texture2D(tDiffuse, vUv + vec2(0.0, texel.y));
+      sum -= texture2D(tDiffuse, vUv - vec2(0.0, texel.y));
+      gl_FragColor = color + sum * strength;
+    }`,
+};
+const sharpenPass = new ShaderPass(SharpenShader);
+composer.addPass(sharpenPass);
+
 /* 应用某一画质档（像素比 / MSAA / Bloom 分辨率与强度 / FXAA 分辨率） */
 function applyQuality(lv) {
   qualityLevel = lv;
@@ -182,6 +216,8 @@ function applyQuality(lv) {
   bloom.strength = q.bloom;
   /* FXAA 分辨率随像素比更新 */
   fxaaPass.material.uniforms["resolution"].value.set(1 / (w * pr), 1 / (h * pr));
+  /* 锐化卷积按实际渲染缓冲像素采样 */
+  sharpenPass.material.uniforms["resolution"].value.set(w * pr, h * pr);
   if (lv >= 2) {
     petals.count = Math.floor(PETAL_COUNT / 2);
     flecks.visible = false;

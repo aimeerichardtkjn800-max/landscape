@@ -555,9 +555,13 @@ export function buildPhotoFrame(w, h) {
   g.add(linerTop, linerBot, linerLeft, linerRight);
 
   /* 照片面（占位纹理，上传后替换 map）
-     MeshBasicMaterial：不受暖光染色、不参与 ACES 色调映射、不受雾影响 → 照片色彩准确不发黄 */
+     MeshBasicMaterial：不受光照/环境反射影响、不参与 ACES 色调映射、不受雾影响
+     → 照片色彩准确、不发灰发黄；白色不染色、不透明避免混合损失 */
   const photoMat = new THREE.MeshBasicMaterial({
     map: makePlaceholderTexture(1024, Math.round((1024 * h) / w)),
+    color: 0xffffff,
+    transparent: false,
+    blending: THREE.NormalBlending,
     toneMapped: false, fog: false,
   });
   const photo = new THREE.Mesh(new THREE.PlaneGeometry(w, h), photoMat);
