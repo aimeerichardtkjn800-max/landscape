@@ -257,28 +257,24 @@
       /* 只把本站核心脚本/字体样式的缺失视为致命（忽略浏览器插件等注入脚本） */
       if (/(js\/(bundle|utils|storage|music)\.js|ma-shan-zheng\.css)(\?|$)/.test(src)) showFallback();
     }, true);
-    setTimeout(function () {
+(function checkAndHide() {
   var canvas = document.getElementById('world-canvas');
   if (canvas && canvas.getAttribute('data-engine')) {
     window.__cardBootOK = true;
     var fb = document.getElementById('load-fallback');
     if (fb) fb.style.display = 'none';
-    return;
+    return true;
   }
-  if (!window.__cardBootOK) showFallback();
-}, 12000);
+  return false;
+})();
 
 var __checkCount = 0;
 var __checkTimer = setInterval(function () {
   __checkCount++;
-  var canvas = document.getElementById('world-canvas');
-  if (canvas && canvas.getAttribute('data-engine') && !window.__cardBootOK) {
-    window.__cardBootOK = true;
-    var fb = document.getElementById('load-fallback');
-    if (fb) fb.style.display = 'none';
+  if (checkAndHide() || __checkCount >= 20) {
+    clearInterval(__checkTimer);
   }
-  if (__checkCount >= 10 || window.__cardBootOK) clearInterval(__checkTimer);
-}, 2000);
+}, 500);
     document.addEventListener("click", function (e) {
       if (e.target && e.target.id === "load-retry") location.reload();
     });
