@@ -1018,9 +1018,10 @@ renderInfo();
 activateStation(0);
 tick();
 window.__cardBootOK = true;
+canvas.dataset.engine = "three";
 /* 启动成功：收起看门狗的失败提示（慢加载时可能已弹出） */
 const fallbackEl = document.getElementById("load-fallback");
-if (fallbackEl) fallbackEl.hidden = true;
+if (fallbackEl) { fallbackEl.hidden = true; fallbackEl.style.display = ""; }
 
 /* 调试接口（自动化验证用） */
 window.__invite = {
