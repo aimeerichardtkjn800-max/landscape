@@ -10,8 +10,8 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import {
   makeXiTexture, makeCloudTexture, makePetalTexture, makeFleckTexture,
-  makeMagpieTexture, buildLantern, buildPhotoFrame, buildScreen,
-  buildRibbon, buildScroll, updateScroll,
+  makeMagpieTexture, makeGlowTexture, buildLantern, buildPhotoFrame,
+  buildScreen, buildRibbon, buildScroll, updateScroll,
   makeScrollTexture, makePlaceholderTexture, makeScreenTexture,
 } from "./factory.js";
 
@@ -58,14 +58,24 @@ let opened = false;
 let opening = false;
 
 /* ================= 渲染器 / 场景 ================= */
+/* 画质分档：默认档追求 60fps；autoDegrade 检测到掉帧时逐级下调。
+   注意：使用 EffectComposer 时 context 级 antialias 不作用于渲染目标，
+   改为给 composer 渲染目标开 MSAA（桌面 4x，移动靠高像素比）。 */
+const QUALITY = [
+  { pr: App.isMobile ? 1.5 : 1.5, samples: App.isMobile ? 0 : 4, bloomScale: App.isMobile ? 0.45 : 0.5, bloom: App.isMobile ? 0.4 : 0.55 },
+  { pr: App.isMobile ? 1.1 : 1.2, samples: 0, bloomScale: 0.45, bloom: 0.42 },
+  { pr: App.isMobile ? 0.95 : 1.0, samples: 0, bloomScale: 0.38, bloom: 0.3 },
+];
+let qualityLevel = 0;
+
 const canvas = document.getElementById("world-canvas");
 const renderer = new THREE.WebGLRenderer({
-  canvas, antialias: true, powerPreference: "high-performance",
+  canvas, antialias: false, powerPreference: "high-performance", stencil: false,
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, App.isMobile ? 1.5 : 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[0].pr));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 1.15;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x2a060a, 0.015);
@@ -89,12 +99,20 @@ const skyMat = new THREE.ShaderMaterial({
   fragmentShader: `
     uniform vec3 top; uniform vec3 mid; uniform vec3 bot; varying vec3 vPos;
     void main(){
-      float h = normalize(vPos).y;
+      vec3 d = normalize(vPos);
+      float h = d.y;
       vec3 c = h >= 0.0 ? mix(mid, top, pow(h, 0.6)) : mix(mid, bot, pow(-h, 0.8));
+      /* 地平线暖金辉光带（宫灯映空的层次） */
+      float horizon = pow(max(0.0, 1.0 - abs(h)), 3.2);
+      c += vec3(0.34, 0.16, 0.055) * horizon;
+      /* 高空一抹暗红晕染 */
+      c += vec3(0.05, 0.015, 0.02) * pow(max(0.0, h), 2.0);
       gl_FragColor = vec4(c, 1.0);
     }`,
 });
-scene.add(new THREE.Mesh(skyGeo, skyMat));
+const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+skyMesh.frustumCulled = false;
+scene.add(skyMesh);
 
 /* ---------- 灯光 ---------- */
 scene.add(new THREE.AmbientLight(0xffe6c8, 0.55));
@@ -111,15 +129,42 @@ const redLight = new THREE.PointLight(0xff5a48, 14, 30, 2);
 redLight.position.set(0, -1.5, 4);
 scene.add(redLight);
 
-/* ---------- 后处理（Bloom 辉光） ---------- */
+/* ---------- 后处理（Bloom 辉光） ----------
+   Bloom 在半分辨率缓冲上运行（辉光本就是模糊的，观感无损、填充率减半） */
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  App.isMobile ? 0.4 : 0.55, 0.35, 0.75
+  App.isMobile ? 0.4 : 0.55, 0.45, 0.68
 );
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+
+/* 应用某一画质档（像素比 / MSAA / Bloom 分辨率与强度） */
+function applyQuality(lv) {
+  qualityLevel = lv;
+  const q = QUALITY[lv];
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setPixelRatio(q.pr);
+  renderer.setSize(w, h);
+  composer.setPixelRatio(q.pr);
+  composer.setSize(w, h);
+  composer.renderTarget1.samples = q.samples;
+  composer.renderTarget2.samples = q.samples;
+  composer.renderTarget1.dispose();
+  composer.renderTarget2.dispose();
+  /* Bloom 以 bloomScale 分辨率运行 */
+  bloom.setSize(
+    Math.max(2, Math.floor(w * q.pr * q.bloomScale)),
+    Math.max(2, Math.floor(h * q.pr * q.bloomScale))
+  );
+  bloom.strength = q.bloom;
+  if (lv >= 2) {
+    petals.count = Math.floor(PETAL_COUNT / 2);
+    flecks.visible = false;
+  }
+}
+applyQuality(0);
 
 /* ================= 场景物件 ================= */
 const tickers = [];                 // 每帧动画回调
@@ -361,6 +406,94 @@ tickers.push((t, dt) => {
     fleckPos[i * 3 + 2] = p.z;
   }
   fleckGeo.attributes.position.needsUpdate = true;
+});
+
+/* ---------- 地台（脚下暗红辉光，给场景着落感与纵深） ---------- */
+function makeGroundTexture(size = 512) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const ctx = c.getContext("2d");
+  const g = ctx.createRadialGradient(size / 2, size / 2, size * 0.04, size / 2, size / 2, size * 0.5);
+  g.addColorStop(0, "rgba(160,46,40,0.5)");
+  g.addColorStop(0.45, "rgba(88,20,22,0.28)");
+  g.addColorStop(1, "rgba(28,6,10,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(420, 420),
+  new THREE.MeshBasicMaterial({ map: makeGroundTexture(), transparent: true, depthWrite: false, opacity: 0.95 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.position.set(0, -4.6, -56);
+scene.add(ground);
+
+/* ---------- 天幕光柱（高处柔光，additive 极淡，拉开远近层次） ---------- */
+const shafts = [];
+const shaftTex = makeGlowTexture(256, [255, 186, 110]);
+[-20, -58, -96].forEach((z, i) => {
+  const side = i % 2 === 0 ? 1 : -1;
+  const mat = new THREE.SpriteMaterial({
+    map: shaftTex, transparent: true, opacity: 0.075 + rnd() * 0.03,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  });
+  const sp = new THREE.Sprite(mat);
+  sp.position.set(side * (App.isMobile ? 2.6 : 5.5), 8.6, z);
+  sp.scale.set(App.isMobile ? 8 : 12, App.isMobile ? 16 : 22, 1);
+  sp.userData = { baseX: sp.position.x, phase: rnd() * 6.28, baseOp: mat.opacity };
+  scene.add(sp);
+  shafts.push(sp);
+});
+tickers.push((t) => {
+  shafts.forEach((s) => {
+    s.position.x = s.userData.baseX + Math.sin(t * 0.15 + s.userData.phase) * 0.6;
+    s.material.opacity = s.userData.baseOp * (0.8 + 0.2 * Math.sin(t * 0.4 + s.userData.phase));
+  });
+});
+
+/* ---------- 近景柔光光斑（紧贴镜头的大虚化光斑，前景视差层次） ---------- */
+const bokehList = [];
+const bokehTexGold = makeGlowTexture(128, [255, 214, 150]);
+const bokehTexRed = makeGlowTexture(128, [255, 122, 96]);
+const BOKEH_COUNT = App.isMobile ? 6 : 10;
+for (let i = 0; i < BOKEH_COUNT; i++) {
+  const mat = new THREE.SpriteMaterial({
+    map: i % 3 === 0 ? bokehTexRed : bokehTexGold,
+    transparent: true, opacity: 0.05 + rnd() * 0.06,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  });
+  const sp = new THREE.Sprite(mat);
+  const d = {
+    ox: (rnd() * 2 - 1) * (App.isMobile ? 2.4 : 4.4),
+    oy: -1.2 + rnd() * 4.4,
+    oz: 4 + rnd() * 9,
+    phase: rnd() * 6.28,
+    baseOp: mat.opacity,
+    drift: 0.2 + rnd() * 0.3,
+  };
+  sp.scale.set(1.1 + rnd() * 2.4, 1.1 + rnd() * 2.4, 1);
+  scene.add(sp);
+  bokehList.push({ sp, d });
+}
+tickers.push((t) => {
+  const cz = camera.position.z;
+  bokehList.forEach(({ sp, d }) => {
+    sp.position.set(
+      camera.position.x * 0.7 + d.ox + Math.sin(t * d.drift + d.phase) * 0.5,
+      d.oy + Math.sin(t * d.drift * 0.8 + d.phase) * 0.4,
+      cz - d.oz
+    );
+    sp.material.opacity = d.baseOp * (0.75 + 0.25 * Math.sin(t * 0.6 + d.phase));
+  });
+});
+
+/* ---------- 灯火呼吸（灯光微闪，零成本增生动感） ---------- */
+tickers.push((t) => {
+  camLight.intensity = 26 + Math.sin(t * 1.3) * 2.2;
+  redLight.intensity = 14 + Math.cos(t * 1.1) * 1.6;
 });
 
 /* ================= 指针视差 / 射线 ================= */
@@ -813,30 +946,22 @@ if (document.fonts && document.fonts.ready) {
 
 /* ================= 尺寸 / 性能 ================= */
 function resize() {
-  const w = window.innerWidth, h = window.innerHeight;
-  camera.aspect = w / h;
+  camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(w, h);
-  composer.setSize(w, h);
+  applyQuality(qualityLevel);
 }
 window.addEventListener("resize", App.debounce(resize, 150));
 resize();
 
-let fpsFrames = 0, fpsTime = performance.now(), degraded = 0;
+/* 自动降档：实测帧速低于阈值时逐级降画质，目标守住 60 / 不低于 30 */
+let fpsFrames = 0, fpsTime = performance.now();
 function autoDegrade(now) {
   fpsFrames++;
   if (now - fpsTime > 3000) {
     const fps = (fpsFrames * 1000) / (now - fpsTime);
     fpsFrames = 0; fpsTime = now;
-    if (fps < 28 && degraded === 0) {
-      renderer.setPixelRatio(1);
-      bloom.strength = 0.32;
-      degraded = 1;
-    } else if (fps < 24 && degraded === 1) {
-      petals.count = Math.floor(PETAL_COUNT / 2);
-      bloom.strength = 0.22;
-      degraded = 2;
-    }
+    if (qualityLevel === 0 && fps < 47) applyQuality(1);
+    else if (qualityLevel === 1 && fps < 38) applyQuality(2);
   }
 }
 

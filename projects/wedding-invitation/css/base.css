@@ -43,6 +43,17 @@ html, body {
   z-index: 0;
 }
 
+/* 屏幕暗角 + 顶部暖晕：纯 CSS，零 3D 开销，聚焦画面中心、增强层次 */
+body::after {
+  content: "";
+  position: fixed; inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 42%, rgba(0, 0, 0, 0) 56%, rgba(14, 2, 5, 0.46) 100%),
+    linear-gradient(to bottom, rgba(255, 190, 120, 0.05), rgba(0, 0, 0, 0) 22%);
+}
+
 #load-fallback {
   position: fixed; inset: 0; z-index: 99;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -52,6 +63,8 @@ html, body {
   text-align: center; padding: 2rem;
   font-size: 1rem; letter-spacing: .1em;
 }
+/* ID 选择器优先级高于浏览器对 [hidden] 的默认隐藏，必须显式声明 */
+#load-fallback[hidden] { display: none; }
 #load-retry {
   font-family: inherit; font-size: .95rem; letter-spacing: .25em;
   color: var(--gold-light); background: transparent;
@@ -456,6 +469,7 @@ body.opened #nav-dots { opacity: 1; }
   animation: hint-breathe 2.8s ease-in-out infinite;
   pointer-events: none;
 }
+#scroll-hint[hidden] { display: none; }
 #scroll-hint svg { width: 1.1rem; height: 1.1rem; animation: hint-chevron 1.8s ease-in-out infinite; }
 @keyframes hint-chevron {
   0%, 100% { transform: translateY(-2px); opacity: .6; }
