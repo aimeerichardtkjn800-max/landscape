@@ -49,7 +49,7 @@ function animTo(delay, dur, items, onComplete) {
 }
 
 /* ================= 配置 ================= */
-const STATIONS = 8;          // 章节数（0 封面 ~ 7 致谢）
+const STATIONS = 9;          // 章节数（0 封面 ~ 8 致谢；6 为「未来」照片章）
 const SPACING = 16;          // 章节 Z 间距
 const stationZ = (i) => -i * SPACING;
 const CAM_START = 11;        // 封面相机 Z
@@ -269,17 +269,17 @@ tickers.push((t) => {
 const ribbonPts1 = [
   new THREE.Vector3(6.5, 6.2, -8), new THREE.Vector3(-4, 5.6, -24),
   new THREE.Vector3(5, 6.4, -55), new THREE.Vector3(-5.5, 5.8, -90),
-  new THREE.Vector3(4, 6.2, -125),
+  new THREE.Vector3(4, 6.2, -125), new THREE.Vector3(-3.5, 5.8, -134),
 ];
 const ribbonPts2 = [
   new THREE.Vector3(-6.5, 6.6, -10), new THREE.Vector3(4.5, 5.9, -28),
   new THREE.Vector3(-5, 6.5, -60), new THREE.Vector3(5.5, 5.7, -95),
-  new THREE.Vector3(-4, 6.3, -128),
+  new THREE.Vector3(-4, 6.3, -128), new THREE.Vector3(4.5, 6.1, -136),
 ];
 scene.add(buildRibbon(ribbonPts1, 0.09));
 scene.add(buildRibbon(ribbonPts2, 0.07));
 
-/* ---------- 窗棂相框（内容层 · 婚纱照 ×4，原视频位改为相框） ---------- */
+/* ---------- 窗棂相框（内容层 · 婚纱照 ×5） ---------- */
 const FRAME_W = 3.0, FRAME_H = 3.8;
 const frames = [];
 const frameSlots = [
@@ -287,6 +287,7 @@ const frameSlots = [
   { station: 3, side: 1 },
   { station: 4, side: -1 },
   { station: 5, side: 1 },
+  { station: 6, side: -1 },
 ];
 frameSlots.forEach((cfg, idx) => {
   const slot = idx + 1;
@@ -701,6 +702,11 @@ function renderInfo() {
   });
   App.$$('[data-info="groom-sign"]').forEach((el) => { el.textContent = info.groom; });
   App.$$('[data-info="bride-sign"]').forEach((el) => { el.textContent = info.bride; });
+  /* 「未来」照片章节文字（kicker 中文按字加空格，与现有章节版式一致） */
+  App.$$('[data-future="cn"]').forEach((el) => { el.textContent = (info.futureTitle || "").split("").join(" "); });
+  App.$$('[data-future="sub"]').forEach((el) => { el.textContent = info.futureSub; });
+  App.$$('[data-future="title"]').forEach((el) => { el.textContent = info.futureTitle; });
+  App.$$('[data-future="body"]').forEach((el) => { el.textContent = info.futureBody; el.dataset.done = ""; });
 }
 
 App.$("#edit-info-btn").addEventListener("click", () => {
@@ -710,6 +716,9 @@ App.$("#edit-info-btn").addEventListener("click", () => {
   App.$("#in-lunar").value = info.lunar;
   App.$("#in-time").value = info.time;
   App.$("#in-venue").value = info.venue;
+  App.$("#in-future-title").value = info.futureTitle;
+  App.$("#in-future-sub").value = info.futureSub;
+  App.$("#in-future-body").value = info.futureBody;
   App.openModal("info-modal");
 });
 App.$("#info-save").addEventListener("click", () => {
@@ -720,13 +729,18 @@ App.$("#info-save").addEventListener("click", () => {
     lunar: App.$("#in-lunar").value.trim() || App.defaults.info.lunar,
     time: App.$("#in-time").value.trim() || App.defaults.info.time,
     venue: App.$("#in-venue").value.trim() || App.defaults.info.venue,
+    futureTitle: App.$("#in-future-title").value.trim() || App.defaults.info.futureTitle,
+    futureSub: App.$("#in-future-sub").value.trim() || App.defaults.info.futureSub,
+    futureBody: App.$("#in-future-body").value.trim() || App.defaults.info.futureBody,
   };
   App.store.set("info", info);
   renderInfo();
   /* 重建姓名毛笔书写 */
   App.$$(".names .brush").forEach((el) => { el.classList.remove("lit"); buildBrush(el, 0); });
-  /* 婚典信息行：若当前章节已展示，立即重新书写 */
-  App.$$('[data-ink][data-info]').forEach((el) => {
+  /* 「未来」章标题毛笔字：renderInfo 已重置为纯文本，此处重建书写动画 */
+  App.$$('#layers [data-future="title"]').forEach((el) => { el.classList.remove("lit"); buildBrush(el, 0); });
+  /* 婚典信息行 / 未来章寄语：若当前章节已展示，立即重新书写 */
+  App.$$('[data-ink][data-info], [data-ink][data-future]').forEach((el) => {
     if (el.closest(".in")) { el.dataset.done = ""; splitInk(el); }
   });
   App.closeModal("info-modal");
@@ -844,7 +858,7 @@ App.$("#replay-btn").addEventListener("click", () => goTo(0));
 
 /* ================= 持久素材恢复 ================= */
 (async function restore() {
-  for (let slot = 1; slot <= 4; slot++) {
+  for (let slot = 1; slot <= 5; slot++) {
     try {
       const blob = await App.db.getFile(`photo-${slot}`);
       if (blob) setPhoto(slot, blob);

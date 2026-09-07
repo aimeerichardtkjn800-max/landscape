@@ -65,8 +65,9 @@
     <button class="dot" data-go="3" data-ripple aria-label="相知"><span class="dot-label">相知</span></button>
     <button class="dot" data-go="4" data-ripple aria-label="相恋"><span class="dot-label">相恋</span></button>
     <button class="dot" data-go="5" data-ripple aria-label="相守"><span class="dot-label">相守</span></button>
-    <button class="dot" data-go="6" data-ripple aria-label="婚典"><span class="dot-label">婚典</span></button>
-    <button class="dot" data-go="7" data-ripple aria-label="致谢"><span class="dot-label">致谢</span></button>
+    <button class="dot" data-go="6" data-ripple aria-label="未来"><span class="dot-label">未来</span></button>
+    <button class="dot" data-go="7" data-ripple aria-label="婚典"><span class="dot-label">婚典</span></button>
+    <button class="dot" data-go="8" data-ripple aria-label="致谢"><span class="dot-label">致谢</span></button>
   </nav>
 
   <!-- ============ 滚动提示 ============ -->
@@ -156,8 +157,21 @@
       </div>
     </section>
 
-    <!-- 场景 6：婚典信息 -->
-    <section class="invite-section center" data-station="6">
+    <!-- 场景 6：未来 · 婚纱照 5（相框在左，最后一个照片章节） -->
+    <section class="invite-section align-right" data-station="6">
+      <div class="text-card" data-animate>
+        <p class="kicker"><span data-future="cn">未 来</span> · <span data-future="sub">FUTURE</span></p>
+        <h2 class="brush-title" data-brush data-future="title" data-speed="normal">未来</h2>
+        <p class="ink-body" data-ink data-future="body">愿以岁月为证，
+以白头为期，
+往后余生，
+皆是你。</p>
+        <p class="media-hint" data-animate>轻点左侧金边相框 · 上传婚纱照</p>
+      </div>
+    </section>
+
+    <!-- 场景 7：婚典信息 -->
+    <section class="invite-section center" data-station="7">
       <div class="invite-card gold-frame info-card" data-animate>
         <p class="card-corner tl" aria-hidden="true"></p>
         <p class="card-corner tr" aria-hidden="true"></p>
@@ -175,8 +189,8 @@
       </div>
     </section>
 
-    <!-- 场景 7：致谢 · 收尾 -->
-    <section class="invite-section center" data-station="7">
+    <!-- 场景 8：致谢 · 收尾 -->
+    <section class="invite-section center" data-station="8">
       <div class="text-card ending-card" data-animate>
         <p class="xi-ending" aria-hidden="true">囍</p>
         <h2 class="brush-title" data-brush data-speed="slow">承蒙厚爱 共证佳期</h2>
@@ -225,6 +239,12 @@
       <input id="in-time" class="text-input no-swipe" maxlength="30" placeholder="午时 12:00 入席" />
       <label class="field-label" for="in-venue">筵席地点</label>
       <input id="in-venue" class="text-input no-swipe" maxlength="40" placeholder="云禧宴会中心 · 三楼禧满堂" />
+      <label class="field-label" for="in-future-title">「未来」章标题</label>
+      <input id="in-future-title" class="text-input no-swipe" maxlength="8" placeholder="未来" />
+      <label class="field-label" for="in-future-sub">「未来」章英文</label>
+      <input id="in-future-sub" class="text-input no-swipe" maxlength="16" placeholder="FUTURE" />
+      <label class="field-label" for="in-future-body">「未来」章寄语</label>
+      <textarea id="in-future-body" class="text-input no-swipe" rows="4" maxlength="80" placeholder="愿以岁月为证，以白头为期，往后余生，皆是你。"></textarea>
       <div class="modal-actions">
         <button class="chip-btn" data-close-modal data-ripple>取消</button>
         <button class="chip-btn accent" id="info-save" data-ripple>保存</button>

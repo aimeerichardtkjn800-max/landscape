@@ -566,6 +566,7 @@ body.opened #nav-dots { opacity: 1; }
 }
 .text-input:focus { border-color: var(--gold-light); box-shadow: 0 0 0 2px rgba(212, 175, 55, .18); }
 .text-input::placeholder { color: rgba(247, 232, 200, .3); }
+textarea.text-input { resize: vertical; min-height: 6.4em; line-height: 1.75; }
 .modal-actions {
   display: flex; justify-content: center; gap: .8rem;
   margin-top: 1.4rem;

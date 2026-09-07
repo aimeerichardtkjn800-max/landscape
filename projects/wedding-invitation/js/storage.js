@@ -4,9 +4,8 @@
 
   /* ---------- IndexedDB ----------
      files store（key-value）：
-       photo-1 / photo-2 / photo-3   婚纱照 Blob
-       video                         恋爱影片 Blob
-       music                         背景音乐 Blob
+       photo-1 ~ photo-5              婚纱照 Blob（5 个相框章节）
+       music                          背景音乐 Blob
   */
   let dbPromise = null;
 
@@ -83,7 +82,7 @@
     },
   };
 
-  /* 默认婚礼信息（示例文字，可在页面内编辑替换） */
+  /* 默认婚礼信息（示例文字，可在页面内编辑替换）；future* 为「未来」照片章节文案 */
   App.defaults = {
     info: {
       groom: "沈知砚",
@@ -92,6 +91,9 @@
       lunar: "丙午年 九月初十",
       time: "午时 12:00 恭候入席",
       venue: "云禧宴会中心 · 三楼禧满堂",
+      futureTitle: "未来",
+      futureSub: "FUTURE",
+      futureBody: "愿以岁月为证，\n以白头为期，\n往后余生，\n皆是你。",
     },
   };
 })();
