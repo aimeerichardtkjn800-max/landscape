@@ -557,7 +557,7 @@ export function buildPhotoFrame(w, h) {
   /* 照片面（占位纹理，上传后替换 map）
      MeshBasicMaterial：不受暖光染色、不参与 ACES 色调映射、不受雾影响 → 照片色彩准确不发黄 */
   const photoMat = new THREE.MeshBasicMaterial({
-    map: makePlaceholderTexture(512, Math.round((512 * h) / w)),
+    map: makePlaceholderTexture(1024, Math.round((1024 * h) / w)),
     toneMapped: false, fog: false,
   });
   const photo = new THREE.Mesh(new THREE.PlaneGeometry(w, h), photoMat);
@@ -664,11 +664,11 @@ export function buildMedallion(radius) {
   const g = new THREE.Group();
 
   const disc = new THREE.Mesh(
-    new THREE.CircleGeometry(radius, 48),
+    new THREE.CircleGeometry(radius, 64),
     new THREE.MeshStandardMaterial({
-      map: makeXiTexture(512, { ring: false }),
+      map: makeXiTexture(768, { ring: false }),
       roughness: 0.4, metalness: 0.35,
-      emissive: 0x3a0a10, emissiveIntensity: 0.5,
+      emissive: 0x3a0a10, emissiveIntensity: 0.28,
     })
   );
   g.add(disc);
@@ -877,7 +877,7 @@ export function buildScroll() {
   paperGeo.translate(0, -H / 2, 0);          // 顶点 y：0（天杆处）→ -H（地杆处）
   const baseY = paperGeo.attributes.position.array.slice();
   const paperMat = new THREE.MeshStandardMaterial({
-    map: makeScrollTexture(1024, 1408),
+    map: makeScrollTexture(2048, 2816),
     roughness: 0.62, metalness: 0.08,
     emissive: 0x2a0508, emissiveIntensity: 0.32,
     side: THREE.DoubleSide,
@@ -945,9 +945,10 @@ export function buildScroll() {
   /* 囍坠 */
   const charm = new THREE.Group();
   const charmMat = new THREE.MeshStandardMaterial({
-    map: makeXiTexture(512, { ring: false }),
+    map: makeXiTexture(768, { ring: false }),
     roughness: 0.4, metalness: 0.35,
-    emissive: 0x3a0a10, emissiveIntensity: 0.5,
+    /* 自发光压低：过强的红光晕会把囍字细节冲淡 */
+    emissive: 0x3a0a10, emissiveIntensity: 0.28,
   });
   const disc = new THREE.Mesh(new THREE.CircleGeometry(0.28, 64), charmMat);
   charm.add(disc);

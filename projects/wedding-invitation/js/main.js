@@ -60,13 +60,13 @@ let opened = false;
 let opening = false;
 
 /* ================= 渲染器 / 场景 ================= */
-/* 画质分档：默认档追求 60fps + 高清晰；autoDegrade 检测到掉帧时逐级下调。
-   抗锯齿三重保障：context antialias + composer 渲染目标 MSAA（桌面 4x）+ FXAA 后处理。
-   prCap 为像素比上限，实际像素比 = min(devicePixelRatio, prCap)，确保高清屏至少 1.5。 */
+/* 画质分档：默认档高清优先——手机/桌面统一 2 倍像素比（DPR≥2 高清屏不降清）、
+   composer 渲染目标 4x MSAA + FXAA 后处理双重抗锯齿；
+   autoDegrade 检测到持续掉帧时逐级下调（流畅模式），默认必须是高清。 */
 const QUALITY = [
-  { prCap: App.isMobile ? 1.5 : 2, samples: App.isMobile ? 0 : 4, bloomScale: App.isMobile ? 0.45 : 0.5, bloom: App.isMobile ? 0.38 : 0.5 },
-  { prCap: App.isMobile ? 1.2 : 1.5, samples: 0, bloomScale: 0.45, bloom: 0.4 },
-  { prCap: App.isMobile ? 1.0 : 1.25, samples: 0, bloomScale: 0.38, bloom: 0.3 },
+  { prCap: 2, samples: 4, bloomScale: 0.45, bloom: 0.3 },
+  { prCap: 1.5, samples: 2, bloomScale: 0.4, bloom: 0.26 },
+  { prCap: 1.25, samples: 0, bloomScale: 0.35, bloom: 0.22 },
 ];
 let qualityLevel = 0;
 
@@ -77,7 +77,7 @@ const renderer = new THREE.WebGLRenderer({
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[0].prCap));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.15;
+renderer.toneMappingExposure = 1.0;   /* 1.15 会过曝发朦，回归标准曝光保证色彩准确 */
 
 /* 纹理清晰度：各向异性过滤（斜看不糊）+ 线性 mip + sRGB 色彩空间 */
 const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
@@ -93,7 +93,8 @@ function enrichTexture(tex) {
 }
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x2a060a, 0.015);
+/* 雾只保留轻微纵深暗示：0.015 的浓度是画面"隔雾"感的主因之一 */
+scene.fog = new THREE.FogExp2(0x2a060a, 0.006);
 
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 600);
 camera.position.set(0, -0.1, CAM_START);
@@ -129,30 +130,30 @@ const skyMesh = new THREE.Mesh(skyGeo, skyMat);
 skyMesh.frustumCulled = false;
 scene.add(skyMesh);
 
-/* ---------- 灯光 ---------- */
-scene.add(new THREE.AmbientLight(0xffe6c8, 0.55));
+/* ---------- 灯光（白光为主保证色彩准确，红色点缀交给材质与红光） ---------- */
+scene.add(new THREE.AmbientLight(0xffffff, 0.62));
 
-const dirLight = new THREE.DirectionalLight(0xffe2b0, 1.15);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.05);
 dirLight.position.set(6, 10, 8);
 scene.add(dirLight);
 
-/* 随相机移动的暖金点光，照亮沿途相框与灯笼 */
-const camLight = new THREE.PointLight(0xffca8a, 26, 34, 2);
+/* 随相机移动的点光，照亮沿途相框与灯笼（仅极轻微暖调，避免整屏蒙黄） */
+const camLight = new THREE.PointLight(0xfff0e2, 18, 34, 2);
 camLight.position.set(0, 2.2, 6);
 scene.add(camLight);
-const redLight = new THREE.PointLight(0xff5a48, 14, 30, 2);
+const redLight = new THREE.PointLight(0xff5a48, 12, 26, 2);
 redLight.position.set(0, -1.5, 4);
 scene.add(redLight);
 
 /* ---------- 后处理（Bloom 辉光 + FXAA 抗锯齿） ----------
-   Bloom 在半分辨率缓冲上运行（辉光本就是模糊的，观感无损、填充率减半）；
-   阈值 0.85：婚纱白衣不再整片泛光发雾，只保留灯笼/金字的高光辉光；
+   Bloom 在半分辨率缓冲上运行；阈值提高到 0.92、强度压到 ≤0.3：
+   婚纱白衣与照片高亮区不再泛光发雾，只留灯笼/金字的克制辉光；
    FXAA 置于 OutputPass 之后，在最终 LDR 画面上平滑边缘锯齿。 */
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(
   new THREE.Vector2(window.innerWidth, window.innerHeight),
-  App.isMobile ? 0.38 : 0.5, 0.45, 0.85
+  0.3, 0.38, 0.92
 );
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
@@ -861,13 +862,13 @@ if (document.fonts && document.fonts.ready) {
       if (mat && mat.map) { mat.map.needsUpdate = true; }
     });
     /* 含汉字的程序化纹理需要重画（Ma Shan Zheng 到达后），使用高分辨率画布 */
-    scrollGroup.userData.paperMat.map = enrichTexture(makeScrollTexture(1024, 1408));
+    scrollGroup.userData.paperMat.map = enrichTexture(makeScrollTexture(2048, 2816));
     scrollGroup.userData.paperMat.needsUpdate = true;
-    scrollGroup.userData.charmMat.map = enrichTexture(makeXiTexture(512, { ring: false }));
+    scrollGroup.userData.charmMat.map = enrichTexture(makeXiTexture(768, { ring: false }));
     scrollGroup.userData.charmMat.needsUpdate = true;
     frames.forEach((f) => {
       if (!f.filled) {
-        f.group.userData.photoMat.map = enrichTexture(makePlaceholderTexture(512, 649));
+        f.group.userData.photoMat.map = enrichTexture(makePlaceholderTexture(1024, 1297));
         f.group.userData.photoMat.needsUpdate = true;
       }
     });
@@ -884,15 +885,19 @@ function resize() {
 window.addEventListener("resize", App.debounce(resize, 150));
 resize();
 
-/* 自动降档：实测帧速低于阈值时逐级降画质，目标守住 60 / 不低于 30 */
+/* 自动降档：实测帧速持续低于阈值才逐级降画质（默认档坚持高清，30fps 是底线）。
+   开机前两个采样窗口（约 6 秒）不降档：避开着色器编译 / 纹理上传造成的瞬时掉帧，
+   防止手机打开页面即被误降为流畅档 */
 let fpsFrames = 0, fpsTime = performance.now();
+let degradeGrace = 2;
 function autoDegrade(now) {
   fpsFrames++;
   if (now - fpsTime > 3000) {
     const fps = (fpsFrames * 1000) / (now - fpsTime);
     fpsFrames = 0; fpsTime = now;
-    if (qualityLevel === 0 && fps < 47) applyQuality(1);
-    else if (qualityLevel === 1 && fps < 38) applyQuality(2);
+    if (degradeGrace > 0) { degradeGrace--; return; }
+    if (qualityLevel === 0 && fps < 42) applyQuality(1);
+    else if (qualityLevel === 1 && fps < 32) applyQuality(2);
   }
 }
 
@@ -969,4 +974,6 @@ window.__invite = {
   go: goTo,
   get opened() { return opened; },
   get station() { return activeStation; },
+  get dpr() { return renderer.getPixelRatio(); },
+  get quality() { return qualityLevel; },
 };
