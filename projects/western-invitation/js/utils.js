@@ -1,0 +1,119 @@
+/* ============ utils.js · 通用工具 ============ */
+window.App = window.App || {};
+
+(function () {
+  const App = window.App;
+
+  App.isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+  App.isMobile = App.isTouch || Math.min(window.innerWidth, window.innerHeight) < 640;
+
+  App.$ = (sel, el = document) => el.querySelector(sel);
+  App.$$ = (sel, el = document) => Array.from(el.querySelectorAll(sel));
+
+  App.clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+  App.lerp = (a, b, t) => a + (b - a) * t;
+
+  App.uid = () => "w-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+
+  App.debounce = (fn, ms) => {
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  };
+
+  /* ---------- 提示气泡 ---------- */
+  let toastWrap = null;
+  App.toast = (msg, duration = 2400) => {
+    if (!toastWrap) toastWrap = document.getElementById("toast-wrap");
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = msg;
+    toastWrap.appendChild(el);
+    setTimeout(() => { el.classList.add("out"); setTimeout(() => el.remove(), 450); }, duration);
+  };
+
+  /* ---------- 涟漪反馈 ---------- */
+  document.addEventListener("pointerdown", (e) => {
+    const host = e.target.closest("[data-ripple]");
+    if (!host) return;
+    const rect = host.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    const ripple = document.createElement("span");
+    ripple.className = "ripple";
+    ripple.style.width = ripple.style.height = size + "px";
+    ripple.style.left = e.clientX - rect.left - size / 2 + "px";
+    ripple.style.top = e.clientY - rect.top - size / 2 + "px";
+    if (getComputedStyle(host).position === "static") host.style.position = "relative";
+    host.appendChild(ripple);
+    ripple.addEventListener("animationend", () => ripple.remove(), { once: true });
+  });
+
+  /* ---------- 弹窗开关 ---------- */
+  App.openModal = (id) => document.getElementById(id).classList.add("open");
+  App.closeModal = (id) => document.getElementById(id).classList.remove("open");
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("[data-close-modal]")) {
+      const modal = e.target.closest(".modal");
+      if (modal) modal.classList.remove("open");
+    }
+  });
+  App.isOverlayOpen = () => !!document.querySelector(".modal.open, .lightbox.open, .map-overlay.open");
+
+  /* ---------- 图片压缩（保持比例，最长边 max 像素；高质量重采样） ---------- */
+  App.fitImage = async (file, max = 2048) => {
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+      if (scale >= 1) { if (bmp.close) bmp.close(); return file; }
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bmp.width * scale);
+      canvas.height = Math.round(bmp.height * scale);
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      if (bmp.close) bmp.close();
+      const blob = await new Promise((res) => canvas.toBlob((b) => res(b), "image/jpeg", 0.92));
+      return blob || file;
+    } catch (err) { return file; }
+  };
+
+  /* ---------- 原图直载（不压缩，保持原始分辨率，各向异性过滤清晰） ----------
+     超过 max（默认 4096）才回退压缩，避免爆纹理显存。
+     返回 { blob, url }：blob 存 IndexedDB，url 给 TextureLoader。 */
+  App.loadImageRaw = async (file, max = 4096) => {
+    try {
+      const bmp = await createImageBitmap(file);
+      if (Math.max(bmp.width, bmp.height) <= max) {
+        if (bmp.close) bmp.close();
+        return { blob: file, url: URL.createObjectURL(file) };
+      }
+      /* 超大图回退压缩 */
+      const blob = await App.fitImage(file, max);
+      return { blob, url: URL.createObjectURL(blob) };
+    } catch (err) {
+      return { blob: file, url: URL.createObjectURL(file) };
+    }
+  };
+
+  /* ---------- 伪随机序列 ---------- */
+  App.hashRandom = (seedStr) => {
+    let h = 2166136261;
+    for (let i = 0; i < seedStr.length; i++) {
+      h ^= seedStr.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return () => {
+      h ^= h << 13; h ^= h >>> 17; h ^= h << 5;
+      return ((h >>> 0) % 10000) / 10000;
+    };
+  };
+
+  /* ---------- 罗马数字转换 ---------- */
+  App.toRoman = (num) => {
+    const map = [["M",1000],["CM",900],["D",500],["CD",400],["C",100],["XC",90],
+      ["L",50],["XL",40],["X",10],["IX",9],["V",5],["IV",4],["I",1]];
+    let r = "";
+    for (const [s, v] of map) { while (num >= v) { r += s; num -= v; } }
+    return r;
+  };
+})();

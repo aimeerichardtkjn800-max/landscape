@@ -1,0 +1,983 @@
+/* ============ main.js · 西式婚礼邀请函 3D 世界 ============
+   层级：背景（暖白穹顶 / 雾）→ 殿堂/拱门/立柱/吊灯
+        → 内容层（照片墙 / 时间线 / 信息卡 / RSVP）→ 前景花瓣 / 金屑粒子
+   滚动驱动相机沿 Z 轴穿越 8 个章节
+====================================================== */
+import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
+import {
+  buildEnvelope, buildHall, buildPhotoWall, buildTimeline,
+  buildInfoCard, buildRsvpCard, buildEndingScene,
+  buildGrandFloor,
+  makePetalTexture, makeFleckTexture, makeGlowTexture, makePlaceholderTexture,
+  makeGoldFrameTexture,
+} from "./factory.js";
+import { initDanmaku } from "./danmaku.js";
+
+const App = window.App;
+const cfg = App.config;
+const T = cfg.theme;
+
+/* ---------- 补间 ---------- */
+function easeInOut(p) { return p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2; }
+function animTo(delay, dur, items, onComplete) {
+  let done = false;
+  const finish = () => { if (done) return; done = true; items.forEach((it) => it.set(it.to)); if (onComplete) onComplete(); };
+  setTimeout(() => {
+    const starts = items.map((it) => it.get());
+    const t0 = performance.now();
+    const step = () => {
+      if (done) return;
+      const p = Math.min(1, (performance.now() - t0) / (dur * 1000));
+      const e = easeInOut(p);
+      items.forEach((it, i) => it.set(starts[i] + (it.to - starts[i]) * e));
+      if (p < 1) requestAnimationFrame(step); else finish();
+    };
+    requestAnimationFrame(step);
+  }, delay * 1000);
+  setTimeout(finish, (delay + dur + 0.2) * 1000);
+}
+
+/* ================= 配置 ================= */
+const STATIONS = 8;
+const SPACING = 16;
+const stationZ = (i) => -i * SPACING;
+const CAM_START = 11;
+const PETAL_COUNT = App.isMobile ? cfg.petals.mobile : cfg.petals.desktop;
+const FLECK_COUNT = App.isMobile ? cfg.flecks.mobile : cfg.flecks.desktop;
+
+const scroll = { target: 0, cur: 0 };
+let opened = false, opening = false;
+
+/* ================= 渲染器 ================= */
+const QUALITY = [
+  { prCap: 2, samples: 4, bloomScale: 0.45, bloom: 0.28 },
+  { prCap: 1.5, samples: 2, bloomScale: 0.4, bloom: 0.24 },
+  { prCap: 1.25, samples: 0, bloomScale: 0.35, bloom: 0.2 },
+];
+let qualityLevel = 0;
+
+const canvas = document.getElementById("world-canvas");
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: true, powerPreference: "high-performance", stencil: false,
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, QUALITY[0].prCap));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+
+const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
+function enrichTexture(tex) {
+  if (!tex) return tex;
+  tex.anisotropy = MAX_ANISO;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  if (tex.colorSpace === THREE.NoColorSpace) tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(new THREE.Color(T.fog).getHex(), 0.004);
+
+const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 600);
+camera.position.set(0, 0, CAM_START);
+camera.lookAt(0, 0, 0);
+
+/* ---------- 暖香槟穹顶（程序化渐变迷雾 + 远景建筑轮廓剪影） ---------- */
+const skyGeo = new THREE.SphereGeometry(280, 48, 28);
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite: false, fog: false,
+  uniforms: {
+    top: { value: new THREE.Color(T.skyTop) },
+    mid: { value: new THREE.Color(T.skyBot) },
+    bot: { value: new THREE.Color(T.ground) },
+    horizon: { value: new THREE.Color(T.roseGold) },
+    sil: { value: new THREE.Color(0xb39e7e) },   /* 剪影暖灰褐色 */
+    gold: { value: new THREE.Color(T.goldLight) },
+  },
+  vertexShader: `varying vec3 vPos; void main(){ vPos=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    uniform vec3 top, mid, bot, horizon, sil, gold; varying vec3 vPos;
+    #define PI 3.14159265
+    /* 单座远景建筑：双柱 + 横梁 + 半圆拱顶，返回剪影遮罩 */
+    float building(float az, float el, float center, float pitch, float hh) {
+      float u = mod(az - center + PI, 2.0*PI) - PI;
+      /* 两根立柱 */
+      float lp = 1.0 - smoothstep(0.010, 0.020, abs(abs(u) - pitch));
+      float col = lp * step(0.0, el) * step(el, hh);
+      /* 横梁（檐部） */
+      float beam = (1.0 - smoothstep(0.0, 0.028, abs(el - hh))) * step(abs(u), pitch + 0.03);
+      /* 半圆拱顶 */
+      float ru = u / pitch, re = (el - hh) / (pitch * 0.95);
+      float rc = ru*ru + re*re;
+      float dome = (re > 0.0 && rc < 1.0) ? (1.0 - smoothstep(0.82, 1.0, rc)) : 0.0;
+      return max(max(col, beam), dome);
+    }
+    void main(){
+      vec3 d = normalize(vPos); float h = d.y;
+      vec3 c = h >= 0.0 ? mix(mid, top, pow(clamp(h,0.0,1.0), 0.55))
+                       : mix(mid, bot, pow(clamp(-h,0.0,1.0), 0.85));
+      /* 地平线玫瑰金光晕 */
+      float ho = pow(max(0.0, 1.0 - abs(h)), 3.0);
+      c += horizon * 0.22 * ho;
+      c += gold * 0.10 * pow(max(0.0, 1.0 - abs(h)), 6.0);
+
+      /* 远景建筑轮廓（水平方位角 + 仰角，越接近地平线越清晰） */
+      float az = atan(d.x, -d.z);
+      float el = h;
+      float horizonFade = exp(-pow(max(el, 0.0) * 5.0, 2.0)) * smoothstep(-0.06, 0.02, el);
+      float b = 0.0;
+      b = max(b, building(az, el, -0.62, 0.10, 0.16));
+      b = max(b, building(az, el,  0.05, 0.13, 0.22));
+      b = max(b, building(az, el,  0.70, 0.09, 0.14));
+      b = max(b, building(az, el, -1.35, 0.11, 0.18));
+      b = max(b, building(az, el,  1.40, 0.10, 0.15));
+      float silA = clamp(b, 0.0, 1.0) * horizonFade * 0.16;
+      c = mix(c, mix(sil, bot, 0.35), silA);
+
+      gl_FragColor = vec4(c, 1.0);
+    }`,
+});
+const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+skyMesh.frustumCulled = false;
+scene.add(skyMesh);
+
+/* ---------- 灯光（白光为主，避免偏色） ---------- */
+scene.add(new THREE.AmbientLight(0xffffff, 0.62));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.05);
+dirLight.position.set(6, 10, 8);
+scene.add(dirLight);
+const camLight = new THREE.PointLight(new THREE.Color(T.warm).getHex(), 18, 34, 2);
+camLight.position.set(0, 2.2, 6);
+scene.add(camLight);
+const warmLight = new THREE.PointLight(new THREE.Color(T.roseGold).getHex(), 10, 26, 2);
+warmLight.position.set(0, -1.5, 4);
+scene.add(warmLight);
+
+/* 左右聚光灯：打亮两侧相框/立柱，形成明暗对比与立体感（随相机移动，始终照亮当前章节） */
+const spotLights = [];
+for (const side of [-1, 1]) {
+  const sp = new THREE.SpotLight(0xfff2dd, 60, 60, 0.5, 0.55, 1.6);
+  sp.position.set(side * 9, 7.5, 4);
+  const tgt = new THREE.Object3D();
+  tgt.position.set(side * 2.6, -1.2, -10);
+  scene.add(tgt);
+  sp.target = tgt;
+  scene.add(sp);
+  spotLights.push({ sp, tgt, side });
+}
+
+/* ---------- 后处理 ---------- */
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.28, 0.38, 0.92);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+const fxaaPass = new ShaderPass(FXAAShader);
+composer.addPass(fxaaPass);
+const SharpenShader = {
+  uniforms: { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1, 1) }, strength: { value: 0.3 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 resolution; uniform float strength; varying vec2 vUv;
+    void main(){ vec2 t=1.0/resolution; vec4 c=texture2D(tDiffuse,vUv); vec4 s=texture2D(tDiffuse,vUv)*4.0;
+    s-=texture2D(tDiffuse,vUv+vec2(t.x,0.0)); s-=texture2D(tDiffuse,vUv-vec2(t.x,0.0));
+    s-=texture2D(tDiffuse,vUv+vec2(0.0,t.y)); s-=texture2D(tDiffuse,vUv-vec2(0.0,t.y));
+    gl_FragColor=c+s*strength; }`,
+};
+const sharpenPass = new ShaderPass(SharpenShader);
+composer.addPass(sharpenPass);
+
+function applyQuality(lv) {
+  qualityLevel = lv;
+  const q = QUALITY[lv];
+  const w = window.innerWidth, h = window.innerHeight;
+  const pr = Math.min(window.devicePixelRatio || 1, q.prCap);
+  renderer.setPixelRatio(pr);
+  renderer.setSize(w, h);
+  composer.setPixelRatio(pr);
+  composer.setSize(w, h);
+  composer.renderTarget1.samples = q.samples;
+  composer.renderTarget2.samples = q.samples;
+  composer.renderTarget1.dispose();
+  composer.renderTarget2.dispose();
+  bloom.setSize(Math.max(2, Math.floor(w * pr * q.bloomScale)), Math.max(2, Math.floor(h * pr * q.bloomScale)));
+  bloom.strength = q.bloom;
+  fxaaPass.material.uniforms["resolution"].value.set(1 / (w * pr), 1 / (h * pr));
+  sharpenPass.material.uniforms["resolution"].value.set(w * pr, h * pr);
+  if (lv >= 2) { petals.count = Math.floor(PETAL_COUNT / 2); flecks.visible = false; }
+}
+applyQuality(0);
+
+/* ================= 场景物件 ================= */
+const tickers = [];
+const clickable = [];
+const fontTexturedMats = [];
+const rnd = App.hashRandom("western-invite");
+
+/* ---------- 信封（场景0 主角） ---------- */
+const envelope = buildEnvelope();
+envelope.position.set(0, App.isMobile ? 0.8 : 1.0, 0.6);
+envelope.scale.setScalar(App.isMobile ? 0.78 : 0.95);
+scene.add(envelope);
+envelope.traverse((o) => { if (o.isMesh) { o.userData.kind = "envelope"; clickable.push(o); } });
+const envBaseY = envelope.position.y;
+tickers.push((t) => {
+  if (!opened) {
+    envelope.position.y = envBaseY + Math.sin(t * 0.8) * 0.06;
+    envelope.rotation.y = pointer.x * 0.08 + Math.sin(t * 0.4) * 0.02;
+  }
+});
+
+/* ---------- 殿堂（场景2） ---------- */
+const useReflector = !App.isMobile && qualityLevel === 0;
+const hall = buildHall(useReflector);
+hall.position.set(0, 0, stationZ(2));
+scene.add(hall);
+hall.userData.chandelier && tickers.push((t) => {
+  hall.userData.chandelier.userData.glowMat.opacity = 0.45 + Math.sin(t * 1.2) * 0.08;
+});
+
+/* ---------- 全局贯通式镜面大理石地面（横跨所有章节，倒映照片墙/立柱/灯光） ---------- */
+const grandFloor = buildGrandFloor(useReflector);
+scene.add(grandFloor);
+
+/* ---------- 照片墙（场景3） ---------- */
+const photoWall = buildPhotoWall(cfg.photoWallCols, cfg.photoWallRows);
+photoWall.position.set(0, 0, stationZ(3));
+scene.add(photoWall);
+photoWall.userData.frames.forEach((f) => {
+  f.traverse((o) => { if (o.isMesh) { o.userData.kind = "frame"; o.userData.slot = f.userData.slot; clickable.push(o); } });
+  fontTexturedMats.push(f.userData.photoMat);
+});
+const wallR = photoWall.userData.R;
+const wallFrames = photoWall.userData.frames;
+const wallSweep = photoWall.userData.sweep;
+wallFrames.forEach((f, i) => {
+  tickers.push((t) => {
+    f.position.y = f.userData.baseY + Math.sin(t * f.userData.speed + f.userData.phase) * 0.1;
+    f.rotation.z = Math.sin(t * 0.6 + f.userData.phase) * 0.01;
+  });
+});
+tickers.push((t) => {
+  const a = wallScroll.cur + t * 0.15;
+  wallSweep.position.set(wallR * Math.sin(a), Math.sin(t * 0.5) * 1.5, -wallR * Math.cos(a));
+  wallSweep.material.opacity = 0.08 + Math.abs(Math.sin(t * 0.3)) * 0.08;
+});
+
+/* ---------- 时间线（场景4） ---------- */
+const timeline = buildTimeline(cfg.timeline);
+timeline.position.set(0, 0, stationZ(4));
+scene.add(timeline);
+const tlNodes = timeline.userData.nodes;
+tlNodes.forEach((nd, i) => {
+  nd.frame.traverse((o) => { if (o.isMesh) { o.userData.kind = "frame"; o.userData.slot = nd.frame.userData.slot; clickable.push(o); } });
+  fontTexturedMats.push(nd.frame.userData.photoMat);
+  tickers.push((t) => {
+    const s = 0.5 + Math.sin(t * 1.5 + i) * 0.3;
+    nd.pulse.scale.set(s * 1.5, s * 1.5, 1);
+    nd.pulse.material.opacity = 0.3 + Math.abs(Math.sin(t * 1.5 + i)) * 0.2;
+  });
+});
+
+/* ---------- 信息卡（场景5） ---------- */
+const infoCard = buildInfoCard();
+infoCard.position.set(0, 0.5, stationZ(5));
+scene.add(infoCard);
+
+/* ---------- RSVP卡（场景6） ---------- */
+const rsvpCard = buildRsvpCard();
+rsvpCard.position.set(0, 0.5, stationZ(6));
+scene.add(rsvpCard);
+
+/* ---------- 结尾场景（场景7） ---------- */
+const ending = buildEndingScene();
+ending.position.set(0, 0, stationZ(7));
+scene.add(ending);
+
+/* ---------- 前景：花瓣 + 金屑 ---------- */
+const petalGeo = new THREE.PlaneGeometry(0.3, 0.3);
+const petalMat = new THREE.MeshBasicMaterial({
+  map: makePetalTexture(), transparent: true, side: THREE.DoubleSide,
+  depthWrite: false, opacity: 0.9,
+});
+const petals = new THREE.InstancedMesh(petalGeo, petalMat, PETAL_COUNT);
+petals.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+petals.frustumCulled = false;
+scene.add(petals);
+
+const petalData = [];
+const xRange = App.isMobile ? 3.2 : 7.5;
+for (let i = 0; i < PETAL_COUNT; i++) {
+  petalData.push({
+    x: (rnd() * 2 - 1) * xRange, y: -2 + rnd() * 11, z: 14 - rnd() * 130,
+    speed: 0.4 + rnd() * 0.5, sway: 0.4 + rnd() * 0.7, phase: rnd() * 6.28,
+    rot: rnd() * 6.28, rotSpeed: (rnd() - 0.5) * 1.4, scale: 0.6 + rnd() * 0.7,
+  });
+}
+const dummy = new THREE.Object3D();
+
+const fleckMat = new THREE.PointsMaterial({
+  map: makeFleckTexture(), transparent: true,
+  blending: THREE.AdditiveBlending, depthWrite: false,
+  size: 0.2, sizeAttenuation: true, color: 0xf0d68a, opacity: 0.75,
+});
+const fleckGeo = new THREE.BufferGeometry();
+const fleckPos = new Float32Array(FLECK_COUNT * 3);
+const fleckData = [];
+for (let i = 0; i < FLECK_COUNT; i++) {
+  const d = { x: (rnd() * 2 - 1) * xRange, y: -2 + rnd() * 11, z: -6 - rnd() * 110, speed: 0.25 + rnd() * 0.35, phase: rnd() * 6.28 };
+  fleckData.push(d);
+  fleckPos[i * 3] = d.x; fleckPos[i * 3 + 1] = d.y; fleckPos[i * 3 + 2] = d.z;
+}
+fleckGeo.setAttribute("position", new THREE.BufferAttribute(fleckPos, 3));
+const flecks = new THREE.Points(fleckGeo, fleckMat);
+scene.add(flecks);
+
+function resetParticle(p, camZ, ahead) {
+  p.z = camZ - (ahead ? 30 + rnd() * 60 : rnd() * 10);
+  p.y = 7 + rnd() * 4;
+  p.x = (rnd() * 2 - 1) * xRange;
+}
+tickers.push((t, dt) => {
+  const camZ = camera.position.z;
+  for (let i = 0; i < PETAL_COUNT; i++) {
+    const p = petalData[i];
+    p.y -= p.speed * dt;
+    p.z += dt * 0.5;
+    p.rot += p.rotSpeed * dt;
+    if (p.y < -3 || p.z > camZ + 6) resetParticle(p, camZ, true);
+    const x = p.x + Math.sin(t * p.sway + p.phase) * 0.6;
+    /* 景深：近景花瓣大而清晰，远景花瓣小而淡 */
+    const depth = Math.max(0, camZ - p.z);
+    const df = THREE.MathUtils.clamp(1.55 - depth * 0.013, 0.4, 1.5);
+    dummy.position.set(x, p.y, p.z);
+    dummy.rotation.set(p.rot * 0.6, p.rot, Math.sin(t + p.phase) * 0.7);
+    dummy.scale.setScalar(p.scale * df);
+    dummy.updateMatrix();
+    petals.setMatrixAt(i, dummy.matrix);
+  }
+  petals.instanceMatrix.needsUpdate = true;
+  for (let i = 0; i < FLECK_COUNT; i++) {
+    const p = fleckData[i];
+    p.y -= p.speed * dt;
+    p.z += dt * 0.45;
+    if (p.y < -3 || p.z > camZ + 6) resetParticle(p, camZ, true);
+    fleckPos[i * 3] = p.x + Math.sin(t * 0.7 + p.phase) * 0.4;
+    fleckPos[i * 3 + 1] = p.y;
+    fleckPos[i * 3 + 2] = p.z;
+  }
+  fleckGeo.attributes.position.needsUpdate = true;
+});
+
+/* ---------- 暖光光斑（近景视差） ---------- */
+const bokehList = [];
+const bokehTex = makeGlowTexture(128, [255, 220, 160]);
+const BOKEH_COUNT = App.isMobile ? 6 : 10;
+for (let i = 0; i < BOKEH_COUNT; i++) {
+  const mat = new THREE.SpriteMaterial({
+    map: bokehTex, transparent: true, opacity: 0.04 + rnd() * 0.05,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  });
+  const sp = new THREE.Sprite(mat);
+  const d = { ox: (rnd() * 2 - 1) * (App.isMobile ? 2.4 : 4.4), oy: -1 + rnd() * 4.4, oz: 4 + rnd() * 9, phase: rnd() * 6.28, baseOp: mat.opacity, drift: 0.2 + rnd() * 0.3 };
+  sp.scale.set(1.1 + rnd() * 2.2, 1.1 + rnd() * 2.2, 1);
+  scene.add(sp);
+  bokehList.push({ sp, d });
+}
+tickers.push((t) => {
+  const cz = camera.position.z;
+  bokehList.forEach(({ sp, d }) => {
+    sp.position.set(camera.position.x * 0.7 + d.ox + Math.sin(t * d.drift + d.phase) * 0.5, d.oy + Math.sin(t * d.drift * 0.8 + d.phase) * 0.4, cz - d.oz);
+    sp.material.opacity = d.baseOp * (0.75 + 0.25 * Math.sin(t * 0.6 + d.phase));
+  });
+});
+
+/* ---------- 远景景深虚化光斑（固定在世界深处，大面积低透明度，填充空白营造空气感） ---------- */
+const farHazeList = [];
+const hazeTexGold = makeGlowTexture(128, [255, 226, 165]);
+const hazeTexPink = makeGlowTexture(128, [240, 196, 176]);
+const HAZE_COUNT = App.isMobile ? 10 : 16;
+for (let i = 0; i < HAZE_COUNT; i++) {
+  const isPink = rnd() > 0.6;
+  const mat = new THREE.SpriteMaterial({
+    map: isPink ? hazeTexPink : hazeTexGold, transparent: true,
+    opacity: 0.05 + rnd() * 0.07,
+    blending: THREE.AdditiveBlending, depthWrite: false, fog: true,
+  });
+  const sp = new THREE.Sprite(mat);
+  const sc = 4 + rnd() * 7; /* 远景大而虚 */
+  sp.scale.set(sc, sc, 1);
+  const d = {
+    x: (rnd() * 2 - 1) * (App.isMobile ? 4 : 8),
+    y: -2 + rnd() * 9,
+    z: 6 - rnd() * 120,
+    phase: rnd() * 6.28, baseOp: mat.opacity, drift: 0.12 + rnd() * 0.18,
+  };
+  sp.position.set(d.x, d.y, d.z);
+  scene.add(sp);
+  farHazeList.push({ sp, d });
+}
+tickers.push((t) => {
+  farHazeList.forEach(({ sp, d }) => {
+    sp.position.x = d.x + Math.sin(t * d.drift + d.phase) * 1.2;
+    sp.position.y = d.y + Math.cos(t * d.drift * 0.7 + d.phase) * 0.8;
+    sp.material.opacity = d.baseOp * (0.7 + 0.3 * Math.sin(t * 0.4 + d.phase));
+  });
+});
+
+tickers.push((t) => {
+  camLight.intensity = 18 + Math.sin(t * 1.3) * 1.5;
+  warmLight.intensity = 10 + Math.cos(t * 1.1) * 1.2;
+});
+
+/* ================= 指针视差 / 射线 ================= */
+const pointer = { x: 0, y: 0 };
+const raycaster = new THREE.Raycaster();
+raycaster.far = 24;
+const ndc = new THREE.Vector2();
+let downPos = null;
+
+window.addEventListener("pointermove", (e) => {
+  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -((e.clientY / window.innerHeight) * 2 - 1);
+});
+window.addEventListener("pointerdown", (e) => { downPos = { x: e.clientX, y: e.clientY }; });
+window.addEventListener("pointerup", (e) => {
+  if (!downPos) return;
+  const dx = e.clientX - downPos.x, dy = e.clientY - downPos.y;
+  downPos = null;
+  if (dx * dx + dy * dy > 100) return;
+  if (App.isOverlayOpen()) return;
+  if (e.target && e.target.closest && e.target.closest("button, a, input, textarea, select, .hud, #nav-dots, .modal, .lightbox, .map-overlay")) return;
+  ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(clickable, false);
+  if (!hits.length) return;
+  const { kind, slot } = hits[0].object.userData;
+  if (kind === "envelope") openEnvelope();
+  else if (kind === "frame" && slot) onFrameClick(slot);
+});
+
+/* ================= 信封开场 ================= */
+function openEnvelope() {
+  if (opening || opened) return;
+  opening = true;
+  App.$("#open-hint").style.opacity = "0";
+  try { App.music.play(); } catch (e) {}
+
+  const ud = envelope.userData;
+  const { flap, seal, fadeMats } = ud;
+
+  /* ① 火漆印章碎裂消散（缩放+淡出） */
+  seal.material.transparent = true;
+  animTo(0, 0.5, [
+    { get: () => seal.scale.x, set: (v) => seal.scale.setScalar(v), to: 1.6 },
+    { get: () => seal.material.opacity, set: (v) => { seal.material.opacity = v; }, to: 0 },
+  ], () => { seal.visible = false; });
+
+  /* ② 封盖翻开 */
+  animTo(0.35, 0.7, [
+    { get: () => flap.rotation.x, set: (v) => { flap.rotation.x = v; }, to: -2.2 },
+  ]);
+
+  /* ③ 相机推进 + 信封淡出 */
+  fadeMats.forEach((m) => { m.transparent = true; });
+  animTo(1.2, 1.3, [
+    { get: () => camera.position.z, set: (v) => { camera.position.z = v; }, to: CAM_START - SPACING },
+  ]);
+  animTo(1.8, 0.9, fadeMats.map((m) => ({
+    get: () => m.opacity, set: (v) => { m.opacity = v; }, to: 0,
+  })), () => {
+    opened = true; opening = false;
+    envelope.visible = false;
+    document.body.classList.add("opened");
+    App.$("#scroll-hint").hidden = false;
+    scroll.target = scroll.cur = 1;
+    if (danmaku) danmaku.start();
+  });
+}
+
+/* ================= 滚动 / 章节驱动 ================= */
+const sections = App.$$(".invite-section");
+const dots = App.$$("#nav-dots .dot");
+let activeStation = 0;
+const shownStations = new Set();
+
+function goTo(i) { if (!opened) return; scroll.target = App.clamp(i, 0, STATIONS - 1); }
+
+/* 照片墙横向滚动模式 */
+const wallScroll = { target: 0, cur: 0, velocity: 0 };
+let wallMode = false;
+const wallMaxAngle = 0.3;
+
+window.addEventListener("wheel", (e) => {
+  if (!opened || App.isOverlayOpen()) return;
+  if (wallMode) {
+    wallScroll.target = App.clamp(wallScroll.target + e.deltaY * 0.002, -wallMaxAngle, wallMaxAngle);
+    return;
+  }
+  e.preventDefault();
+  scroll.target = App.clamp(scroll.target + e.deltaY * 0.0016, 0, STATIONS - 1);
+}, { passive: false });
+
+let touchStart = null;
+window.addEventListener("touchstart", (e) => {
+  if (App.isOverlayOpen()) return;
+  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, wall: wallScroll.target, scroll: scroll.target };
+}, { passive: true });
+
+window.addEventListener("touchmove", (e) => {
+  if (!opened || !touchStart || App.isOverlayOpen()) return;
+  const dx = e.touches[0].clientX - touchStart.x;
+  const dy = e.touches[0].clientY - touchStart.y;
+  if (wallMode) {
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
+      e.preventDefault();
+      wallScroll.target = App.clamp(touchStart.wall + dx * 0.004, -wallMaxAngle, wallMaxAngle);
+    } else if (Math.abs(dy) > 8 && wallScroll.cur >= wallMaxAngle * 0.9) {
+      wallMode = false; scroll.target = touchStart.scroll + (-dy) * 0.0042;
+    }
+  } else {
+    scroll.target = App.clamp(touchStart.scroll + (-dy) * 0.0042, 0, STATIONS - 1);
+    touchStart.scroll = scroll.target;
+  }
+}, { passive: false });
+
+let lastTouchTime = 0, lastTouchX = 0;
+window.addEventListener("touchmove", (e) => {
+  const now = performance.now();
+  if (now - lastTouchTime > 16) {
+    wallScroll.velocity = (e.touches[0].clientX - lastTouchX) * 0.004;
+    lastTouchTime = now; lastTouchX = e.touches[0].clientX;
+  }
+}, { passive: true });
+window.addEventListener("touchend", () => { touchStart = null; }, { passive: true });
+
+window.addEventListener("keydown", (e) => {
+  if (App.isOverlayOpen()) return;
+  if (["ArrowDown", "PageDown", " "].includes(e.key)) goTo(Math.round(scroll.target) + 1);
+  if (["ArrowUp", "PageUp"].includes(e.key)) goTo(Math.round(scroll.target) - 1);
+  if (e.key === "ArrowLeft" && wallMode) wallScroll.target = App.clamp(wallScroll.target - 0.08, -wallMaxAngle, wallMaxAngle);
+  if (e.key === "ArrowRight" && wallMode) wallScroll.target = App.clamp(wallScroll.target + 0.08, -wallMaxAngle, wallMaxAngle);
+});
+
+dots.forEach((d) => d.addEventListener("click", () => { wallMode = false; goTo(+d.dataset.go); }));
+
+function activateStation(i) {
+  if (activeStation === i && shownStations.has(i)) return;
+  activeStation = i;
+  sections.forEach((s, idx) => s.classList.toggle("active", idx === i));
+  dots.forEach((d, idx) => d.classList.toggle("active", idx === i));
+  if (activeStation === 3) { wallMode = true; loadWallPhotos(); }
+  else if (wallMode && i !== 3) wallMode = false;
+
+  if (!shownStations.has(i)) {
+    shownStations.add(i);
+    sections[i].classList.add("in");
+    App.$$("[data-split]", sections[i]).forEach(splitChars);
+  }
+  /* 时间线节点进入视口触发动画 */
+  if (i === 4) {
+    tlNodes.forEach((nd, idx) => {
+      setTimeout(() => {
+        nd.frame.visible = true;
+        nd.frame.userData.shown = true;
+      }, idx * 300);
+    });
+  }
+  /* 陀螺仪请求（场景5 首次进入） */
+  if (i === 5 && !gyroReady && typeof DeviceOrientationEvent !== "undefined" && DeviceOrientationEvent.requestPermission) {
+    /* 需用户手势，延迟到下次交互 */
+  }
+}
+
+/* ================= 逐字淡入 ================= */
+function splitChars(el) {
+  if (el.dataset.done) return;
+  const text = el.textContent;
+  let i = 0;
+  el.innerHTML = [...text].map((c) =>
+    c === "\n" ? "<br>" : `<span class="fade-char" style="--i:${++i}">${c}</span>`
+  ).join("");
+  el.dataset.done = "1";
+}
+
+/* ================= 婚礼信息渲染 ================= */
+let info = App.store.get("info", App.defaults.info);
+function renderInfo() {
+  App.$$('[data-name="groom"]').forEach((el) => { el.textContent = info.groom; });
+  App.$$('[data-name="bride"]').forEach((el) => { el.textContent = info.bride; });
+  const map = { date: info.date, time: info.time, venue: info.venue, address: info.address };
+  Object.entries(map).forEach(([k, v]) => {
+    App.$$(`[data-info="${k}"]`).forEach((el) => { el.textContent = v; el.dataset.done = ""; });
+  });
+  App.$$('[data-info="groom-sign"]').forEach((el) => { el.textContent = info.groom; });
+  App.$$('[data-info="bride-sign"]').forEach((el) => { el.textContent = info.bride; });
+}
+
+App.$("#edit-info-btn").addEventListener("click", () => {
+  App.$("#in-groom").value = info.groom;
+  App.$("#in-bride").value = info.bride;
+  App.$("#in-date").value = info.date;
+  App.$("#in-time").value = info.time;
+  App.$("#in-venue").value = info.venue;
+  App.$("#in-address").value = info.address;
+  App.openModal("info-modal");
+});
+App.$("#info-save").addEventListener("click", () => {
+  info = {
+    groom: App.$("#in-groom").value.trim() || App.defaults.info.groom,
+    bride: App.$("#in-bride").value.trim() || App.defaults.info.bride,
+    date: App.$("#in-date").value.trim() || App.defaults.info.date,
+    time: App.$("#in-time").value.trim() || App.defaults.info.time,
+    venue: App.$("#in-venue").value.trim() || App.defaults.info.venue,
+    address: App.$("#in-address").value.trim() || App.defaults.info.address,
+  };
+  App.store.set("info", info);
+  renderInfo();
+  App.$$("[data-split]").forEach((el) => { el.dataset.done = ""; splitChars(el); });
+  App.closeModal("info-modal");
+  App.toast("婚礼信息已更新");
+});
+
+/* ================= 照片：上传 / 灯箱 ================= */
+const photoInput = App.$("#input-photos");
+let pendingSlot = 1;
+const slotUrls = {};
+const allFrames = [
+  ...wallFrames,
+  ...tlNodes.map((n) => n.frame),
+];
+const slotToFrame = {};
+allFrames.forEach((f) => { slotToFrame[f.userData.slot] = f; });
+
+function setPhoto(slot, blob) {
+  const frame = slotToFrame[slot];
+  if (!frame) return;
+  if (slotUrls[slot]) URL.revokeObjectURL(slotUrls[slot]);
+  const url = URL.createObjectURL(blob);
+  slotUrls[slot] = url;
+  new THREE.TextureLoader().load(url, (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    enrichTexture(tex);
+    const old = frame.userData.photoMat.map;
+    frame.userData.photoMat.map = tex;
+    frame.userData.photoMat.needsUpdate = true;
+    if (old) old.dispose();
+  });
+  frame.userData.filled = true;
+}
+
+function onFrameClick(slot) {
+  const frame = slotToFrame[slot];
+  if (frame && frame.userData.filled) openLightbox(slot);
+  else { pendingSlot = slot; photoInput.click(); }
+}
+
+let wallLoaded = false;
+async function loadWallPhotos() {
+  if (wallLoaded) return;
+  wallLoaded = true;
+  for (let slot = 1; slot <= cfg.photoSlots; slot++) {
+    try {
+      const blob = await App.db.getFile(cfg.photoKey(slot));
+      if (blob) setPhoto(slot, blob);
+    } catch (e) {}
+  }
+}
+
+photoInput.addEventListener("change", async () => {
+  const files = Array.from(photoInput.files || []);
+  photoInput.value = "";
+  if (!files.length) return;
+  let slot = pendingSlot;
+  for (const file of files) {
+    while (slot <= cfg.photoSlots && slotToFrame[slot] && slotToFrame[slot].userData.filled) slot++;
+    if (slot > cfg.photoSlots) break;
+    try {
+      const { blob } = await App.loadImageRaw(file);
+      await App.db.putFile(cfg.photoKey(slot), blob);
+      setPhoto(slot, blob);
+      App.toast(`第 ${slot} 张照片已上传`);
+    } catch (e) { App.toast("上传失败，请换一张试试"); }
+    slot++;
+  }
+});
+
+/* 灯箱 */
+const lightbox = App.$("#lightbox");
+const lbImg = App.$("#lb-img");
+const lbCounter = App.$("#lb-counter");
+let lbList = [], lbIdx = 0;
+function openLightbox(slot) {
+  lbList = allFrames.filter((f) => f.userData.filled).map((f) => f.userData.slot);
+  lbIdx = lbList.indexOf(slot);
+  if (lbIdx < 0) lbIdx = 0;
+  renderLb();
+  lightbox.classList.add("open");
+}
+function renderLb() {
+  const slot = lbList[lbIdx];
+  lbImg.src = slotUrls[slot] || "";
+  lbCounter.textContent = lbList.length ? `${lbIdx + 1} / ${lbList.length}` : "";
+}
+App.$("#lb-prev").addEventListener("click", () => { if (lbList.length) { lbIdx = (lbIdx - 1 + lbList.length) % lbList.length; renderLb(); } });
+App.$("#lb-next").addEventListener("click", () => { if (lbList.length) { lbIdx = (lbIdx + 1) % lbList.length; renderLb(); } });
+App.$("#lb-close").addEventListener("click", () => lightbox.classList.remove("open"));
+lightbox.addEventListener("click", (e) => { if (e.target === lightbox) lightbox.classList.remove("open"); });
+
+/* ================= 地图浮层 ================= */
+const mapOverlay = App.$("#map-overlay");
+App.$("#map-btn").addEventListener("click", () => mapOverlay.classList.add("open"));
+mapOverlay.addEventListener("click", (e) => { if (e.target === mapOverlay) mapOverlay.classList.remove("open"); });
+App.$("#map-close").addEventListener("click", () => mapOverlay.classList.remove("open"));
+
+/* ================= 陀螺仪（信息卡倾斜） ================= */
+let gyroReady = false;
+let gyroBeta = 0, gyroGamma = 0;
+function onGyro(e) {
+  if (e.beta != null) gyroBeta = (e.beta / 180) * Math.PI;
+  if (e.gamma != null) gyroGamma = (e.gamma / 90) * Math.PI;
+}
+App.$("#info-card-tap").addEventListener("click", async () => {
+  if (gyroReady) return;
+  if (typeof DeviceOrientationEvent !== "undefined" && DeviceOrientationEvent.requestPermission) {
+    try {
+      const r = await DeviceOrientationEvent.requestPermission();
+      if (r === "granted") { gyroReady = true; window.addEventListener("deviceorientation", onGyro); App.toast("陀螺仪已启用"); }
+    } catch (e) {}
+  } else {
+    gyroReady = true; window.addEventListener("deviceorientation", onGyro);
+  }
+});
+tickers.push(() => {
+  const targetX = gyroReady ? App.clamp(gyroBeta * 0.3, -0.09, 0.09) : pointer.y * 0.05;
+  const targetY = gyroReady ? App.clamp(gyroGamma * 0.3, -0.09, 0.09) : -pointer.x * 0.05;
+  infoCard.rotation.x += (targetX - infoCard.rotation.x) * 0.05;
+  infoCard.rotation.y += (targetY - infoCard.rotation.y) * 0.05;
+  rsvpCard.rotation.x += (targetX * 0.5 - rsvpCard.rotation.x) * 0.05;
+  rsvpCard.rotation.y += (targetY * 0.5 - rsvpCard.rotation.y) * 0.05;
+});
+
+/* ================= RSVP 提交 ================= */
+App.$("#rsvp-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = App.$("#rsvp-name").value.trim();
+  const count = App.$("#rsvp-count").value;
+  const msg = App.$("#rsvp-message").value.trim();
+  /* 对勾动画 */
+  const btn = App.$("#rsvp-submit");
+  btn.classList.add("submitted");
+  App.toast(cfg.text.rsvpThanks);
+  /* 金色粒子绽放 */
+  burstGoldParticles();
+  /* 嘉宾祝福实时飘屏 */
+  if (danmaku) {
+    const blessing = (name ? name + "：" : "") + (msg || "祝新婚快乐，百年好合！");
+    danmaku.push(blessing);
+  }
+  setTimeout(() => goTo(7), 1500);
+});
+
+/* 金色粒子绽放（临时 InstancedMesh） */
+let burstMesh = null, burstData = [], burstT = 0;
+function burstGoldParticles() {
+  if (burstMesh) { scene.remove(burstMesh); burstMesh.geometry.dispose(); }
+  const geo = new THREE.PlaneGeometry(0.18, 0.18);
+  const mat = new THREE.MeshBasicMaterial({
+    map: makeFleckTexture(), transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, opacity: 1,
+  });
+  burstMesh = new THREE.InstancedMesh(geo, mat, 50);
+  burstMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  scene.add(burstMesh);
+  burstData = [];
+  const pos = new THREE.Vector3(0, 0.5, stationZ(6));
+  for (let i = 0; i < 50; i++) {
+    const theta = rnd() * Math.PI * 2, phi = rnd() * Math.PI;
+    const sp = 3 + rnd() * 4;
+    burstData.push({
+      x: pos.x, y: pos.y, z: pos.z,
+      vx: Math.sin(phi) * Math.cos(theta) * sp,
+      vy: Math.cos(phi) * sp + 2,
+      vz: Math.sin(phi) * Math.sin(theta) * sp,
+      life: 0, scale: 0.5 + rnd() * 0.8,
+    });
+  }
+  burstT = 0;
+}
+tickers.push((_, dt) => {
+  if (!burstMesh) return;
+  burstT += dt;
+  const d = new THREE.Object3D();
+  let alive = false;
+  for (let i = 0; i < 50; i++) {
+    const p = burstData[i]; if (!p) continue;
+    p.life += dt;
+    if (p.life > 2) { d.scale.setScalar(0); d.updateMatrix(); burstMesh.setMatrixAt(i, d.matrix); continue; }
+    alive = true;
+    p.vy -= 4 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    const s = p.scale * Math.max(0, 1 - p.life / 2);
+    d.position.set(p.x, p.y, p.z);
+    d.rotation.z = p.life * 3;
+    d.scale.setScalar(s);
+    d.updateMatrix();
+    burstMesh.setMatrixAt(i, d.matrix);
+  }
+  burstMesh.instanceMatrix.needsUpdate = true;
+  burstMesh.material.opacity = Math.max(0, 1 - burstT / 2);
+  if (!alive) { scene.remove(burstMesh); burstMesh.geometry.dispose(); burstMesh = null; }
+});
+
+/* ================= 背景音乐 UI ================= */
+const musicBtn = App.$("#music-btn");
+function syncMusicIcon(s) {
+  App.$("#icon-play").hidden = s.playing;
+  App.$("#icon-pause").hidden = !s.playing;
+  musicBtn.classList.toggle("paused", !s.playing);
+}
+App.music.onChange(syncMusicIcon);
+musicBtn.addEventListener("click", () => App.music.toggle());
+App.$("#music-upload-btn").addEventListener("click", () => App.$("#input-music").click());
+App.$("#input-music").addEventListener("change", async () => {
+  const file = App.$("#input-music").files && App.$("#input-music").files[0];
+  App.$("#input-music").value = "";
+  if (!file) return;
+  try {
+    await App.db.putFile("music", file);
+    await App.music.setFile(file, opened);
+    App.toast("背景音乐已更换");
+  } catch (e) { App.toast("音乐上传失败"); }
+});
+
+/* 返回首页 */
+App.$("#home-btn").addEventListener("click", () => {
+  wallMode = false;
+  envelope.visible = true;
+  envelope.userData.fadeMats.forEach((m) => { m.opacity = 1; m.transparent = false; });
+  goTo(0);
+  setTimeout(() => { opened = false; envelope.visible = true; }, 2000);
+});
+
+/* ================= 持久素材恢复 ================= */
+(async function restore() {
+  for (let slot = 1; slot <= cfg.photoSlots; slot++) {
+    try { const blob = await App.db.getFile(cfg.photoKey(slot)); if (blob) setPhoto(slot, blob); } catch (e) {}
+  }
+})();
+
+/* ================= 字体就绪重绘 ================= */
+if (document.fonts && document.fonts.ready) {
+  document.fonts.ready.then(() => {
+    fontTexturedMats.forEach((mat) => { if (mat && mat.map) mat.map.needsUpdate = true; });
+  });
+}
+
+/* ================= 尺寸 / 性能 ================= */
+function resize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  applyQuality(qualityLevel);
+}
+window.addEventListener("resize", App.debounce(resize, 150));
+resize();
+
+let fpsFrames = 0, fpsTime = performance.now(), degradeGrace = 2;
+function autoDegrade(now) {
+  fpsFrames++;
+  if (now - fpsTime > 3000) {
+    const fps = (fpsFrames * 1000) / (now - fpsTime);
+    fpsFrames = 0; fpsTime = now;
+    if (degradeGrace > 0) { degradeGrace--; return; }
+    if (qualityLevel === 0 && fps < 42) applyQuality(1);
+    else if (qualityLevel === 1 && fps < 32) applyQuality(2);
+  }
+}
+
+/* ================= 主循环 ================= */
+let lastFrame = performance.now(), elapsed = 0, lastStation = -1, lastTickRun = 0;
+
+function tick() {
+  requestAnimationFrame(tick);
+  const now0 = performance.now();
+  if (now0 - lastTickRun < 16) return;
+  lastTickRun = now0;
+  setTimeout(() => { if (performance.now() - lastTickRun > 140) tick(); }, 150);
+
+  const now = now0;
+  const dt = Math.min((now - lastFrame) / 1000, 0.05);
+  lastFrame = now;
+  elapsed += dt;
+  const t = elapsed;
+
+  scroll.cur += (scroll.target - scroll.cur) * 0.075;
+  if (opened) camera.position.z = CAM_START - scroll.cur * SPACING;
+  else if (!opening) camera.position.z = CAM_START;
+
+  /* 照片墙横向 */
+  wallScroll.velocity *= 0.92;
+  wallScroll.target = App.clamp(wallScroll.target + wallScroll.velocity * dt * 60, -wallMaxAngle, wallMaxAngle);
+  wallScroll.cur += (wallScroll.target - wallScroll.cur) * 0.1;
+  photoWall.rotation.y = wallScroll.cur;
+
+  /* 殿堂场景左右视角 */
+  if (activeStation === 2) {
+    hall.rotation.y = App.clamp(pointer.x * 0.26, -0.26, 0.26);
+  }
+
+  camera.position.x += (pointer.x * 0.35 - camera.position.x) * 0.04;
+  camera.position.y += ((pointer.y * 0.15) - camera.position.y) * 0.04;
+  camera.lookAt(pointer.x * 0.5, 0.3, camera.position.z - 9);
+
+  camLight.position.set(0, 2.4, camera.position.z + 4);
+  warmLight.position.set(0, -1.6, camera.position.z + 2.5);
+
+  /* 左右聚光灯随相机推进，始终照亮当前章节两侧的相框/立柱 */
+  for (const { sp, tgt, side } of spotLights) {
+    sp.position.set(side * 9, 7.5, camera.position.z + 5);
+    tgt.position.set(side * 2.6, -1.2, camera.position.z - 9);
+    tgt.updateMatrixWorld();
+  }
+
+  const si = App.clamp(Math.round(scroll.cur), 0, STATIONS - 1);
+  if (si !== lastStation) { lastStation = si; if (opened) activateStation(si); }
+
+  tickers.forEach((fn) => fn(t, dt));
+  autoDegrade(performance.now());
+  composer.render();
+}
+
+/* 启动前纹理高清增强 */
+scene.traverse((o) => {
+  const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : null;
+  if (mats) mats.forEach((m) => { ["map", "emissiveMap"].forEach((k) => { if (m && m[k] && m[k].isTexture) enrichTexture(m[k]); }); });
+});
+
+/* ================= 顶部祝福弹幕 ================= */
+const danmaku = initDanmaku(cfg);
+App.danmaku = danmaku; /* 对外数据接口：App.danmaku.push("祝福") */
+
+renderInfo();
+activateStation(0);
+tick();
+window.__cardBootOK = true;
+canvas.dataset.engine = "three";
+const fallbackEl = document.getElementById("load-fallback");
+if (fallbackEl) { fallbackEl.hidden = true; fallbackEl.style.display = ""; }
+
+window.__invite = {
+  open: openEnvelope, go: goTo,
+  get opened() { return opened; },
+  get station() { return activeStation; },
+  get dpr() { return renderer.getPixelRatio(); },
+  get quality() { return qualityLevel; },
+  get wallMode() { return wallMode; },
+};
