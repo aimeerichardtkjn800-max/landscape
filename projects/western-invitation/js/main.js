@@ -11,7 +11,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
 import {
-  buildEnvelope, buildHall, buildPhotoWall, buildTimeline,
+  buildEnvelope, buildHall, buildPhotoWall,
   buildInfoCard, buildRsvpCard, buildEndingScene,
   buildGrandFloor,
   makePetalTexture, makeFleckTexture, makeGlowTexture, makePlaceholderTexture,
@@ -44,10 +44,14 @@ function animTo(delay, dur, items, onComplete) {
 }
 
 /* ================= 配置 ================= */
-const STATIONS = 8;
+const STATIONS = App.$$(".invite-section").length;  /* 章节数随 DOM 自动同步（story 章节已移除） */
 const SPACING = 16;
-const stationZ = (i) => -i * SPACING;
+/* 画廊(站3)→详情(站4)额外间距：相机必须先越过相框圆环（R≈7.6，远边 z≈-55.6），
+   详情卡才在环后出现；站 4/5/6 的相机与物体统一后移 GALLERY_GAP */
+const GALLERY_GAP = 10;
+const stationZ = (i) => (i <= 3 ? -i * SPACING : -3 * SPACING - (i - 3) * (SPACING + GALLERY_GAP));
 const CAM_START = 11;
+const camZFor = (s) => (s <= 3 ? CAM_START - s * SPACING : CAM_START - 3 * SPACING - (s - 3) * (SPACING + GALLERY_GAP));
 const PETAL_COUNT = App.isMobile ? cfg.petals.mobile : cfg.petals.desktop;
 const FLECK_COUNT = App.isMobile ? cfg.flecks.mobile : cfg.flecks.desktop;
 
@@ -242,6 +246,27 @@ hall.position.set(0, 0, stationZ(2));
 scene.add(hall);
 hall.userData.chandelier && tickers.push((t) => {
   hall.userData.chandelier.userData.glowMat.opacity = 0.45 + Math.sin(t * 1.2) * 0.08;
+  (hall.userData.miniLights || []).forEach((m, i) => {
+    m.userData.glowMat.opacity = 0.4 + Math.sin(t * 1.3 + i * 2) * 0.08;
+  });
+  /* 烛火摇曳 + 灯串呼吸 */
+  if (hall.userData.flameMat) {
+    hall.userData.flameMat.opacity = 0.78 + Math.sin(t * 9.0) * 0.12 + Math.sin(t * 23.0) * 0.06;
+    hall.userData.flameMat.size = 0.52 + Math.sin(t * 11.0) * 0.05;
+  }
+  if (hall.userData.stringMat) hall.userData.stringMat.opacity = 0.72 + Math.sin(t * 2.2) * 0.16;
+  /* 纱幔微风摆动（顶部固定、底部自由） */
+  (hall.userData.drapes || []).forEach((d) => {
+    const attr = d.mesh.geometry.attributes.position;
+    const arr = attr.array;
+    for (let i = 0; i < arr.length; i += 3) {
+      const bx = d.base[i], by = d.base[i + 1], bz = d.base[i + 2];
+      const free = THREE.MathUtils.clamp((d.h / 2 - by) / d.h, 0, 1);
+      arr[i + 2] = bz + (Math.sin(bx * 2.4 + t * 0.9 + d.ph) * 0.14
+                        + Math.sin(by * 1.7 + t * 0.6 + d.ph) * 0.05) * free;
+    }
+    attr.needsUpdate = true;
+  });
 });
 
 /* ---------- 全局贯通式镜面大理石地面（横跨所有章节，倒映照片墙/立柱/灯光） ---------- */
@@ -256,49 +281,86 @@ photoWall.userData.frames.forEach((f) => {
   f.traverse((o) => { if (o.isMesh) { o.userData.kind = "frame"; o.userData.slot = f.userData.slot; clickable.push(o); } });
   fontTexturedMats.push(f.userData.photoMat);
 });
-const wallR = photoWall.userData.R;
 const wallFrames = photoWall.userData.frames;
-const wallSweep = photoWall.userData.sweep;
-wallFrames.forEach((f, i) => {
-  tickers.push((t) => {
-    f.position.y = f.userData.baseY + Math.sin(t * f.userData.speed + f.userData.phase) * 0.1;
-    f.rotation.z = Math.sin(t * 0.6 + f.userData.phase) * 0.01;
-  });
-});
-tickers.push((t) => {
-  const a = wallScroll.cur + t * 0.15;
-  wallSweep.position.set(wallR * Math.sin(a), Math.sin(t * 0.5) * 1.5, -wallR * Math.cos(a));
-  wallSweep.material.opacity = 0.08 + Math.abs(Math.sin(t * 0.3)) * 0.08;
-});
+const wallStep = photoWall.userData.step;   /* 每张相框角距 (2π/15) */
+/* 照片材质开启透明，供两侧/背后渐隐（景深） */
+wallFrames.forEach((f) => { f.userData.photoMat.transparent = true; });
 
-/* ---------- 时间线（场景4） ---------- */
-const timeline = buildTimeline(cfg.timeline);
-timeline.position.set(0, 0, stationZ(4));
-scene.add(timeline);
-const tlNodes = timeline.userData.nodes;
-tlNodes.forEach((nd, i) => {
-  nd.frame.traverse((o) => { if (o.isMesh) { o.userData.kind = "frame"; o.userData.slot = nd.frame.userData.slot; clickable.push(o); } });
-  fontTexturedMats.push(nd.frame.userData.photoMat);
-  tickers.push((t) => {
-    const s = 0.5 + Math.sin(t * 1.5 + i) * 0.3;
-    nd.pulse.scale.set(s * 1.5, s * 1.5, 1);
-    nd.pulse.material.opacity = 0.3 + Math.abs(Math.sin(t * 1.5 + i)) * 0.2;
-  });
-});
+/* 角度归一化到 [-π, π] */
+const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
-/* ---------- 信息卡（场景5） ---------- */
+/* ===== 画廊圆环轮播：自动流转永不中断（触碰/滑动不打断，始终跟随节奏轮流展示） =====
+   hold : C 位驻足 RING_HOLD 秒
+   move : ease-in-out cubic 缓动流转到下一相框（RING_MOVE 秒，起转/停转自然加减速） */
+const RING_HOLD = 2.0;
+const RING_MOVE = 1.8;
+const easeInOutCubic = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+
+const ringControllers = [];
+function createRing(station, group, frames, step) {
+  frames.forEach((f) => { f.userData.photoMat.transparent = true; });
+  const ring = { station, group, frames, step, st: {
+    cur: 0, mode: "hold", holdUntil: 0, moveFrom: 0, moveTo: 0, moveStart: 0,
+  } };
+  ringControllers.push(ring);
+  return ring;
+}
+function ringReset(ring) {
+  Object.assign(ring.st, {
+    cur: 0, mode: "hold", holdUntil: 0, moveFrom: 0, moveTo: 0, moveStart: 0,
+  });
+  ring.group.rotation.y = 0;
+}
+function ringUpdate(ring, t) {
+  const cs = ring.st;
+  if (activeStation === ring.station) {
+    if (cs.mode === "hold") {
+      if (cs.holdUntil === 0) cs.holdUntil = t + RING_HOLD;  /* 首次进入：先驻足 2 秒 */
+      if (t >= cs.holdUntil) {                              /* 驻足结束 → 顺时针缓动流转 */
+        cs.mode = "move"; cs.moveFrom = cs.cur;
+        cs.moveTo = cs.cur - ring.step; cs.moveStart = t;
+      }
+    } else {
+      const p = App.clamp((t - cs.moveStart) / RING_MOVE, 0, 1);
+      cs.cur = cs.moveFrom + (cs.moveTo - cs.moveFrom) * easeInOutCubic(p);
+      if (p >= 1) { cs.cur = cs.moveTo; cs.mode = "hold"; cs.holdUntil = t + RING_HOLD; }
+    }
+  }
+  ring.group.rotation.y = cs.cur;
+
+  /* 逐相框：正前放大提亮（焦点），两侧/背后渐隐（景深） */
+  for (const f of ring.frames) {
+    const u = f.userData;
+    const d = Math.abs(wrapPi(u.angle + cs.cur));
+    const focus = THREE.MathUtils.clamp(1 - d / 0.55, 0, 1);
+    const focusE = focus * focus * (3 - 2 * focus);
+    const vis = THREE.MathUtils.clamp(1 - (d - 1.05) / 1.1, 0, 1);
+
+    f.position.y = u.baseY + Math.sin(t * u.speed + u.phase) * 0.08;
+    f.scale.setScalar(0.92 + 0.18 * focusE);
+    u.photoMat.opacity = vis * (0.55 + 0.45 * focusE);
+    if (u.glow) u.glow.material.opacity = 0.16 + 0.5 * focusE;
+  }
+}
+tickers.push((t) => { ringControllers.forEach((r) => ringUpdate(r, t)); });
+
+/* ---------- 画廊环（场景3）：自动流转，永不中断 ---------- */
+const galleryRing = createRing(3, photoWall, wallFrames, wallStep);
+App.rings = { gallery: galleryRing };  /* 调试接口 */
+
+/* ---------- 信息卡（场景4） ---------- */
 const infoCard = buildInfoCard();
-infoCard.position.set(0, 0.5, stationZ(5));
+infoCard.position.set(0, 0.5, stationZ(4));
 scene.add(infoCard);
 
-/* ---------- RSVP卡（场景6） ---------- */
+/* ---------- RSVP卡（场景5） ---------- */
 const rsvpCard = buildRsvpCard();
-rsvpCard.position.set(0, 0.5, stationZ(6));
+rsvpCard.position.set(0, 0.5, stationZ(5));
 scene.add(rsvpCard);
 
-/* ---------- 结尾场景（场景7） ---------- */
+/* ---------- 结尾场景（场景6） ---------- */
 const ending = buildEndingScene();
-ending.position.set(0, 0, stationZ(7));
+ending.position.set(0, 0, stationZ(6));
 scene.add(ending);
 
 /* ---------- 前景：花瓣 + 金屑 ---------- */
@@ -512,17 +574,10 @@ const shownStations = new Set();
 
 function goTo(i) { if (!opened) return; scroll.target = App.clamp(i, 0, STATIONS - 1); }
 
-/* 照片墙横向滚动模式 */
-const wallScroll = { target: 0, cur: 0, velocity: 0 };
-let wallMode = false;
-const wallMaxAngle = 0.3;
+/* 画廊（章节 3）相框群自动流转、永不中断；横滑/触摸均不影响，只有纵向滑动切换章节 */
 
 window.addEventListener("wheel", (e) => {
   if (!opened || App.isOverlayOpen()) return;
-  if (wallMode) {
-    wallScroll.target = App.clamp(wallScroll.target + e.deltaY * 0.002, -wallMaxAngle, wallMaxAngle);
-    return;
-  }
   e.preventDefault();
   scroll.target = App.clamp(scroll.target + e.deltaY * 0.0016, 0, STATIONS - 1);
 }, { passive: false });
@@ -530,70 +585,45 @@ window.addEventListener("wheel", (e) => {
 let touchStart = null;
 window.addEventListener("touchstart", (e) => {
   if (App.isOverlayOpen()) return;
-  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, wall: wallScroll.target, scroll: scroll.target };
+  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, scroll: scroll.target };
 }, { passive: true });
 
 window.addEventListener("touchmove", (e) => {
   if (!opened || !touchStart || App.isOverlayOpen()) return;
-  const dx = e.touches[0].clientX - touchStart.x;
   const dy = e.touches[0].clientY - touchStart.y;
-  if (wallMode) {
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
-      e.preventDefault();
-      wallScroll.target = App.clamp(touchStart.wall + dx * 0.004, -wallMaxAngle, wallMaxAngle);
-    } else if (Math.abs(dy) > 8 && wallScroll.cur >= wallMaxAngle * 0.9) {
-      wallMode = false; scroll.target = touchStart.scroll + (-dy) * 0.0042;
-    }
-  } else {
+  if (Math.abs(dy) > 6) {
+    /* 纵向：任意位置直接切换章节（画廊旋转不受任何触摸影响） */
+    e.preventDefault();
     scroll.target = App.clamp(touchStart.scroll + (-dy) * 0.0042, 0, STATIONS - 1);
     touchStart.scroll = scroll.target;
   }
 }, { passive: false });
 
-let lastTouchTime = 0, lastTouchX = 0;
-window.addEventListener("touchmove", (e) => {
-  const now = performance.now();
-  if (now - lastTouchTime > 16) {
-    wallScroll.velocity = (e.touches[0].clientX - lastTouchX) * 0.004;
-    lastTouchTime = now; lastTouchX = e.touches[0].clientX;
-  }
-}, { passive: true });
 window.addEventListener("touchend", () => { touchStart = null; }, { passive: true });
 
 window.addEventListener("keydown", (e) => {
   if (App.isOverlayOpen()) return;
   if (["ArrowDown", "PageDown", " "].includes(e.key)) goTo(Math.round(scroll.target) + 1);
   if (["ArrowUp", "PageUp"].includes(e.key)) goTo(Math.round(scroll.target) - 1);
-  if (e.key === "ArrowLeft" && wallMode) wallScroll.target = App.clamp(wallScroll.target - 0.08, -wallMaxAngle, wallMaxAngle);
-  if (e.key === "ArrowRight" && wallMode) wallScroll.target = App.clamp(wallScroll.target + 0.08, -wallMaxAngle, wallMaxAngle);
 });
 
-dots.forEach((d) => d.addEventListener("click", () => { wallMode = false; goTo(+d.dataset.go); }));
+dots.forEach((d) => d.addEventListener("click", () => { goTo(+d.dataset.go); }));
 
 function activateStation(i) {
   if (activeStation === i && shownStations.has(i)) return;
   activeStation = i;
   sections.forEach((s, idx) => s.classList.toggle("active", idx === i));
   dots.forEach((d, idx) => d.classList.toggle("active", idx === i));
-  if (activeStation === 3) { wallMode = true; loadWallPhotos(); }
-  else if (wallMode && i !== 3) wallMode = false;
+  if (i === 3) { ringReset(galleryRing); loadWallPhotos(); }
+  document.body.classList.toggle("on-ring", activeStation === 3);
 
   if (!shownStations.has(i)) {
     shownStations.add(i);
     sections[i].classList.add("in");
     App.$$("[data-split]", sections[i]).forEach(splitChars);
   }
-  /* 时间线节点进入视口触发动画 */
-  if (i === 4) {
-    tlNodes.forEach((nd, idx) => {
-      setTimeout(() => {
-        nd.frame.visible = true;
-        nd.frame.userData.shown = true;
-      }, idx * 300);
-    });
-  }
-  /* 陀螺仪请求（场景5 首次进入） */
-  if (i === 5 && !gyroReady && typeof DeviceOrientationEvent !== "undefined" && DeviceOrientationEvent.requestPermission) {
+  /* 陀螺仪请求（详情页首次进入） */
+  if (i === 4 && !gyroReady && typeof DeviceOrientationEvent !== "undefined" && DeviceOrientationEvent.requestPermission) {
     /* 需用户手势，延迟到下次交互 */
   }
 }
@@ -651,10 +681,7 @@ App.$("#info-save").addEventListener("click", () => {
 const photoInput = App.$("#input-photos");
 let pendingSlot = 1;
 const slotUrls = {};
-const allFrames = [
-  ...wallFrames,
-  ...tlNodes.map((n) => n.frame),
-];
+const allFrames = [...wallFrames];
 const slotToFrame = {};
 allFrames.forEach((f) => { slotToFrame[f.userData.slot] = f; });
 
@@ -783,7 +810,7 @@ App.$("#rsvp-form").addEventListener("submit", (e) => {
     const blessing = (name ? name + "：" : "") + (msg || "祝新婚快乐，百年好合！");
     danmaku.push(blessing);
   }
-  setTimeout(() => goTo(7), 1500);
+  setTimeout(() => goTo(6), 1500);
 });
 
 /* 金色粒子绽放（临时 InstancedMesh） */
@@ -799,7 +826,7 @@ function burstGoldParticles() {
   burstMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   scene.add(burstMesh);
   burstData = [];
-  const pos = new THREE.Vector3(0, 0.5, stationZ(6));
+  const pos = new THREE.Vector3(0, 0.5, stationZ(5));
   for (let i = 0; i < 50; i++) {
     const theta = rnd() * Math.PI * 2, phi = rnd() * Math.PI;
     const sp = 3 + rnd() * 4;
@@ -860,7 +887,7 @@ App.$("#input-music").addEventListener("change", async () => {
 
 /* 返回首页 */
 App.$("#home-btn").addEventListener("click", () => {
-  wallMode = false;
+  ringControllers.forEach(ringReset);
   envelope.visible = true;
   envelope.userData.fadeMats.forEach((m) => { m.opacity = 1; m.transparent = false; });
   goTo(0);
@@ -919,14 +946,10 @@ function tick() {
   const t = elapsed;
 
   scroll.cur += (scroll.target - scroll.cur) * 0.075;
-  if (opened) camera.position.z = CAM_START - scroll.cur * SPACING;
+  if (opened) camera.position.z = camZFor(scroll.cur);
   else if (!opening) camera.position.z = CAM_START;
 
-  /* 照片墙横向 */
-  wallScroll.velocity *= 0.92;
-  wallScroll.target = App.clamp(wallScroll.target + wallScroll.velocity * dt * 60, -wallMaxAngle, wallMaxAngle);
-  wallScroll.cur += (wallScroll.target - wallScroll.cur) * 0.1;
-  photoWall.rotation.y = wallScroll.cur;
+  /* 圆环轮播（画廊/爱情故事）由 ringControllers 状态机驱动（ease-in-out 自动流转） */
 
   /* 殿堂场景左右视角 */
   if (activeStation === 2) {
@@ -947,7 +970,11 @@ function tick() {
     tgt.updateMatrixWorld();
   }
 
-  const si = App.clamp(Math.round(scroll.cur), 0, STATIONS - 1);
+  /* 画廊(3)→详情(4)：相机越过相框圆环远边（scroll≈3.72）后再激活详情页，
+     保证"穿过画框群"之后详情卡才出现（反向返回同理） */
+  let si = Math.round(scroll.cur);
+  if (scroll.cur > 3 && scroll.cur < 4) si = scroll.cur >= 3.75 ? 4 : 3;
+  si = App.clamp(si, 0, STATIONS - 1);
   if (si !== lastStation) { lastStation = si; if (opened) activateStation(si); }
 
   tickers.forEach((fn) => fn(t, dt));
@@ -979,5 +1006,5 @@ window.__invite = {
   get station() { return activeStation; },
   get dpr() { return renderer.getPixelRatio(); },
   get quality() { return qualityLevel; },
-  get wallMode() { return wallMode; },
+  get ringMode() { return activeStation === 3; },
 };

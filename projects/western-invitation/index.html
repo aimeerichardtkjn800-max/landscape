@@ -55,15 +55,14 @@
     <button class="dot" data-go="1" data-ripple aria-label="新人"><span class="dot-label">Couple</span></button>
     <button class="dot" data-go="2" data-ripple aria-label="殿堂"><span class="dot-label">Hall</span></button>
     <button class="dot" data-go="3" data-ripple aria-label="照片墙"><span class="dot-label">Gallery</span></button>
-    <button class="dot" data-go="4" data-ripple aria-label="时间线"><span class="dot-label">Story</span></button>
-    <button class="dot" data-go="5" data-ripple aria-label="信息"><span class="dot-label">Details</span></button>
-    <button class="dot" data-go="6" data-ripple aria-label="RSVP"><span class="dot-label">RSVP</span></button>
-    <button class="dot" data-go="7" data-ripple aria-label="致谢"><span class="dot-label">Thanks</span></button>
+    <button class="dot" data-go="4" data-ripple aria-label="信息"><span class="dot-label">Details</span></button>
+    <button class="dot" data-go="5" data-ripple aria-label="RSVP"><span class="dot-label">RSVP</span></button>
+    <button class="dot" data-go="6" data-ripple aria-label="致谢"><span class="dot-label">Thanks</span></button>
   </nav>
 
   <!-- ============ 滚动提示 ============ -->
   <div id="scroll-hint" hidden>
-    <span>Swipe · Continue</span>
+    <span>滑动继续 / SWIPE TO CONTINUE</span>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
   </div>
 
@@ -72,118 +71,111 @@
 
     <!-- 场景 0：信封开场 -->
     <section class="invite-section center" data-station="0">
-      <p id="open-hint" data-animate>Click to Open</p>
+      <p id="open-hint" data-animate>开启请柬 / CLICK TO OPEN</p>
     </section>
 
     <!-- 场景 1：新人信息 -->
     <section class="invite-section center" data-station="1">
       <div class="text-card" data-animate>
-        <p class="kicker" data-split>WEDDING INVITATION</p>
+        <p class="kicker" data-split>婚礼邀请函 / WEDDING INVITATION</p>
         <h1 class="names">
           <span class="name" data-split data-name="groom">XXX</span>
           <span class="name-amp" aria-hidden="true">&amp;</span>
           <span class="name" data-split data-name="bride">XXX</span>
         </h1>
         <p class="date-roman" data-split data-info="date">X · X · MMXXVI</p>
-        <p class="body-text" data-split>Together with their families
+        <p class="body-text" data-split>谨于两姓，恭候光临
 XXX &amp; XXX
-request the honour of your presence
-at their wedding celebration.</p>
+诚挚邀请您共同见证
+我们的婚礼庆典。
+— Together with their families,
+request the honour of your presence —</p>
       </div>
     </section>
 
     <!-- 场景 2：婚礼殿堂 -->
     <section class="invite-section center" data-station="2">
       <div class="text-card" data-animate>
-        <p class="kicker" data-split>THE CEREMONY</p>
-        <h2 class="section-title" data-split>Sacred Vows</h2>
-        <p class="body-text" data-split>在花瓣与烛光中，
-许下永恒的誓言。
-左右滑动 · 环视殿堂</p>
+        <p class="kicker" data-split>婚礼殿堂 / THE CEREMONY</p>
+        <h2 class="section-title" data-split>神圣誓约 / SACRED VOWS</h2>
+        <p class="body-text" data-split>在花瓣与烛光中，许下永恒的誓言。
+左右滑动 · 环视殿堂 / Swipe to look around</p>
       </div>
     </section>
 
-    <!-- 场景 3：照片墙 -->
-    <section class="invite-section center" data-station="3">
-      <div class="text-card" data-animate>
-        <p class="kicker" data-split>OUR GALLERY</p>
-        <h2 class="section-title" data-split>Cherished Moments</h2>
-        <p class="sub-text" data-split>左右滑动浏览 · 轻点相框上传照片</p>
-      </div>
+    <!-- 场景 3：照片墙（无任何遮罩卡片：仅顶部极小标识 + 底部极淡字幕） -->
+    <section class="invite-section center gallery-section" data-station="3">
+      <p class="gallery-top-label" data-animate>珍藏时刻 / OUR GALLERY</p>
+      <p class="gallery-bottom-hint" data-animate>
+        <span>静候光影流转 / Auto-playing</span>
+        <svg class="hint-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </p>
     </section>
 
-    <!-- 场景 4：爱情故事时间线 -->
+    <!-- 场景 4：婚礼信息 -->
     <section class="invite-section center" data-station="4">
-      <div class="text-card" data-animate>
-        <p class="kicker" data-split>OUR STORY</p>
-        <h2 class="section-title" data-split>A Love Timeline</h2>
-        <p class="sub-text" data-split>上下滑动 · 回溯我们的故事</p>
-      </div>
-    </section>
-
-    <!-- 场景 5：婚礼信息 -->
-    <section class="invite-section center" data-station="5">
       <div class="invite-card gold-frame info-card" data-animate id="info-card-tap">
         <p class="card-corner tl" aria-hidden="true"></p>
         <p class="card-corner tr" aria-hidden="true"></p>
         <p class="card-corner bl" aria-hidden="true"></p>
         <p class="card-corner br" aria-hidden="true"></p>
 
-        <p class="kicker" data-split>WEDDING DAY</p>
-        <h2 class="section-title" data-split>Save the Date</h2>
+        <p class="kicker" data-split>婚礼详情 / WEDDING DAY</p>
+        <h2 class="section-title" data-split>诚挚相邀 / SAVE THE DATE</h2>
         <ul class="info-list">
-          <li><span class="info-label">Date</span><span class="sub-text" data-split data-info="date">X · X · MMXXVI</span></li>
-          <li><span class="info-label">Time</span><span class="sub-text" data-split data-info="time">4:00 PM</span></li>
-          <li><span class="info-label">Venue</span><span class="sub-text" data-split data-info="venue">Rosewood Garden Chapel</span></li>
-          <li><span class="info-label">Addr</span><span class="sub-text" data-split data-info="address">123 Garden Avenue</span></li>
+          <li><span class="info-label">日期 / DATE</span><span class="sub-text" data-split data-info="date">X · X · MMXXVI</span></li>
+          <li><span class="info-label">时间 / TIME</span><span class="sub-text" data-split data-info="time">4:00 PM</span></li>
+          <li><span class="info-label">地点 / VENUE</span><span class="sub-text" data-split data-info="venue">Rosewood Garden Chapel</span></li>
+          <li><span class="info-label">地址 / ADDR</span><span class="sub-text" data-split data-info="address">123 Garden Avenue</span></li>
         </ul>
-        <button class="chip-btn accent" id="map-btn" data-ripple style="margin-top:1.2rem">View Map</button>
+        <button class="chip-btn accent" id="map-btn" data-ripple style="margin-top:1.2rem">查看地图 / VIEW MAP</button>
       </div>
     </section>
 
-    <!-- 场景 6：RSVP -->
-    <section class="invite-section center" data-station="6">
+    <!-- 场景 5：RSVP -->
+    <section class="invite-section center" data-station="5">
       <div class="invite-card gold-frame" data-animate style="max-width:28rem">
         <p class="card-corner tl" aria-hidden="true"></p>
         <p class="card-corner tr" aria-hidden="true"></p>
         <p class="card-corner bl" aria-hidden="true"></p>
         <p class="card-corner br" aria-hidden="true"></p>
 
-        <p class="kicker" data-split>R.S.V.P</p>
-        <h2 class="section-title" data-split>Will You Join Us?</h2>
+        <p class="kicker" data-split>回执确认 / R.S.V.P</p>
+        <h2 class="section-title" data-split>恭请光临 / WILL YOU JOIN US?</h2>
         <form class="rsvp-form" id="rsvp-form">
           <div class="rsvp-field">
-            <label for="rsvp-name">Name</label>
-            <input id="rsvp-name" class="text-input no-swipe" maxlength="20" placeholder="请输入您的姓名" required />
+            <label for="rsvp-name">您的姓名 / Name</label>
+            <input id="rsvp-name" class="text-input no-swipe" maxlength="20" placeholder="您的姓名 / Name" required />
           </div>
           <div class="rsvp-field">
-            <label for="rsvp-count">Guests</label>
+            <label for="rsvp-count">宾客人数 / Guests</label>
             <select id="rsvp-count" class="text-input no-swipe">
-              <option value="1">1 人</option>
-              <option value="2">2 人</option>
-              <option value="3">3 人</option>
-              <option value="4">4 人</option>
+              <option value="1">1 位 / 1 Guest</option>
+              <option value="2">2 位 / 2 Guests</option>
+              <option value="3">3 位 / 3 Guests</option>
+              <option value="4">4 位 / 4 Guests</option>
             </select>
           </div>
           <div class="rsvp-field">
-            <label for="rsvp-message">Message</label>
-            <textarea id="rsvp-message" class="text-input no-swipe" rows="3" maxlength="80" placeholder="写下您的祝福…"></textarea>
+            <label for="rsvp-message">祝福语 / Message</label>
+            <textarea id="rsvp-message" class="text-input no-swipe" rows="3" maxlength="80" placeholder="写下您的祝福 / Your blessing…"></textarea>
           </div>
-          <button type="submit" class="chip-btn accent rsvp-submit" id="rsvp-submit" data-ripple>Send Blessing</button>
+          <button type="submit" class="chip-btn accent rsvp-submit" id="rsvp-submit" data-ripple>提交祝福 / SEND BLESSING</button>
         </form>
       </div>
     </section>
 
-    <!-- 场景 7：结尾祝福 -->
-    <section class="invite-section center" data-station="7">
+    <!-- 场景 6：结尾祝福 -->
+    <section class="invite-section center" data-station="6">
       <div class="text-card" data-animate>
         <h1 class="ending-names" data-split><span data-info="groom-sign">XXX</span> &amp; <span data-info="bride-sign">XXX</span></h1>
-        <p class="ending-thanks" data-split>Thank You</p>
+        <p class="ending-thanks" data-split>感谢您 / THANK YOU</p>
         <p class="body-text" data-split>愿所爱皆可得，愿所愿皆成真。
-风雪是你，平淡也是你。</p>
+风雪是你，平淡也是你。
+With love and gratitude, we thank you.</p>
         <p class="signature" data-split><span data-info="groom-sign">XXX</span> &amp; <span data-info="bride-sign">XXX</span></p>
         <div style="display:flex; gap:.8rem; justify-content:center; margin-top:1.6rem; flex-wrap:wrap">
-          <button class="chip-btn" id="home-btn" data-ripple>Back to Start</button>
+          <button class="chip-btn" id="home-btn" data-ripple>返回首页 / BACK TO START</button>
         </div>
       </div>
     </section>
@@ -213,7 +205,7 @@ at their wedding celebration.</p>
       <button class="icon-btn tiny map-close" id="map-close" data-ripple aria-label="关闭">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
       </button>
-      <h3>Venue Location</h3>
+      <h3>婚礼位置 / VENUE LOCATION</h3>
       <svg viewBox="0 0 320 200" width="100%" style="border-radius:4px" preserveAspectRatio="xMidYMid slice">
         <defs>
           <linearGradient id="mapbg" x1="0" y1="0" x2="1" y2="1">

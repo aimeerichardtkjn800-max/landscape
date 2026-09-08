@@ -137,6 +137,56 @@ export function makeWaxSealTexture(size = 256, name = "XXX") {
   return toTexture(canvas);
 }
 
+/* ---------------- ②b 信封封面烫金文字（XXX & XXX 婚礼邀请函） ---------------- */
+export function makeEnvelopeFaceTexture(w = 800, h = 360) {
+  const { canvas, ctx } = makeCanvas(w, h);
+  /* 象牙丝绸底 */
+  const bg = ctx.createRadialGradient(w * 0.5, h * 0.4, 20, w / 2, h / 2, w * 0.6);
+  bg.addColorStop(0, "#fbf6ec");
+  bg.addColorStop(0.65, "#f4ecdc");
+  bg.addColorStop(1, "#e7d8be");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  /* 金色双线边框 */
+  ctx.strokeStyle = "rgba(196,160,90,.9)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(16, 16, w - 32, h - 32);
+  ctx.lineWidth = 1;
+  ctx.strokeRect(28, 28, w - 56, h - 56);
+
+  /* 顶部小菱形饰 */
+  ctx.fillStyle = "#c4a05a";
+  ctx.save(); ctx.translate(w / 2, 52); ctx.rotate(Math.PI / 4);
+  ctx.fillRect(-7, -7, 14, 14); ctx.restore();
+  ctx.fillStyle = "rgba(196,160,90,.55)";
+  ctx.fillRect(w / 2 - 70, 50, 56, 1.5);
+  ctx.fillRect(w / 2 + 14, 50, 56, 1.5);
+
+  /* WEDDING INVITATION 英文小标题 */
+  ctx.fillStyle = "#8a6a2a";
+  ctx.font = `600 26px ${SERIF}`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.letterSpacing = "6px";
+  ctx.fillText("W E D D I N G   I N V I T A T I O N", w / 2, 112);
+
+  /* XXX & XXX 主标题（流光金） */
+  goldText(ctx, "XXX & XXX", w / 2, 205, 78);
+
+  /* 中文：婚礼邀请函 */
+  ctx.font = `300 40px ${SERIF}`;
+  ctx.fillStyle = "#7a5a20";
+  ctx.shadowColor = "rgba(212,175,55,.35)";
+  ctx.shadowBlur = 10;
+  ctx.fillText("婚  礼  邀  请  函", w / 2, 292);
+  ctx.shadowBlur = 0;
+
+  /* 底部细分隔线 */
+  ctx.strokeStyle = "rgba(196,160,90,.5)";
+  ctx.beginPath(); ctx.moveTo(w / 2 - 90, 330); ctx.lineTo(w / 2 + 90, 330); ctx.stroke();
+  return toTexture(canvas);
+}
+
 /* ---------------- ③ 玫瑰花纹理（拱门装饰用，正面单朵） ---------------- */
 export function makeRoseTexture(size = 128, color = "white") {
   const { canvas, ctx } = makeCanvas(size, size);
@@ -536,9 +586,13 @@ export function buildEnvelope() {
     g.add(m);
   });
 
-  /* 封面前片（下半身） */
+  /* 封面前片（下半身，印有 XXX & XXX 婚礼邀请函） */
   const frontH = H * 0.62;
-  const front = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.12, frontH), silkDarkMat);
+  const front = new THREE.Mesh(new THREE.PlaneGeometry(W - 0.12, frontH), new THREE.MeshStandardMaterial({
+    map: makeEnvelopeFaceTexture(800, Math.round(800 * frontH / (W - 0.12))),
+    roughness: 0.5, metalness: 0.05,
+    emissive: 0x2a2218, emissiveIntensity: 0.12,
+  }));
   front.position.set(0, -H / 2 + frontH / 2 + 0.02, D / 2 + 0.01);
   g.add(front);
 
@@ -557,11 +611,12 @@ export function buildEnvelope() {
   flap.position.set(0, H / 2 - 0.02, D / 2 + 0.03);
   g.add(flap);
 
-  /* 火漆封印（刻 XXX） */
+  /* 火漆封印（刻新人首字母组合 X&X） */
+  const monogram = (App.config.groom[0] || "X") + "&" + (App.config.bride[0] || "X");
   const seal = new THREE.Mesh(
     new THREE.CircleGeometry(0.42, 32),
     new THREE.MeshStandardMaterial({
-      map: makeWaxSealTexture(256, App.config.groom),
+      map: makeWaxSealTexture(256, monogram),
       roughness: 0.5, metalness: 0.3,
       emissive: 0x4a2a18, emissiveIntensity: 0.25,
     })
@@ -604,38 +659,111 @@ export function buildEnvelope() {
   return g;
 }
 
-/* 大理石立柱（含金色柯林斯式柱头） */
-export function buildPillar(height = 8) {
+/* 大理石立柱 · 科林斯式（茛苕叶柱头 + 垂直凹槽柱身 + 多层阶梯柱基 + 玫瑰花环） */
+export function buildPillar(height = 7) {
   const g = new THREE.Group();
+  /* 做旧哑光金（非镜面亮金） */
   const goldMat = new THREE.MeshStandardMaterial({
-    color: 0xd4af37, metalness: 0.8, roughness: 0.3,
-    emissive: 0x3a2a08, emissiveIntensity: 0.35,
+    color: 0xc2a05a, metalness: 0.6, roughness: 0.55,
+    emissive: 0x2a1e08, emissiveIntensity: 0.22,
   });
   const pillarMat = new THREE.MeshStandardMaterial({
     map: makeMarbleTexture(512, "pillar"),
-    roughness: 0.35, metalness: 0.15,
+    roughness: 0.4, metalness: 0.12,
   });
 
-  /* 柱身 */
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.36, height, 24, 1), pillarMat);
-  shaft.position.y = 0;
-  g.add(shaft);
-
-  /* 柱头（柯林斯简化：涡卷 + 金色方座） */
-  const capBase = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.25, 0.85), goldMat);
-  capBase.position.y = height / 2 + 0.12;
-  g.add(capBase);
-  /* 涡卷装饰 */
-  for (let s of [-1, 1]) {
-    const volute = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.04, 8, 16, Math.PI * 1.5), goldMat);
-    volute.position.set(s * 0.22, height / 2 + 0.32, 0);
-    volute.rotation.set(Math.PI / 2, 0, s > 0 ? 0 : Math.PI);
-    g.add(volute);
+  /* ---- 柱身：24 道垂直凹槽（顶点径向位移） ---- */
+  const shaftGeo = new THREE.CylinderGeometry(0.3, 0.36, height, 48, 14);
+  const sp = shaftGeo.attributes.position;
+  const FLUTES = 24;
+  for (let i = 0; i < sp.count; i++) {
+    const x = sp.getX(i), z = sp.getZ(i);
+    const r = Math.hypot(x, z);
+    if (r > 0.02) {
+      const th = Math.atan2(z, x);
+      const groove = 1 - 0.055 * 0.5 * (1 - Math.cos(FLUTES * th)); /* 凹入约5% */
+      sp.setX(i, (x / r) * r * groove);
+      sp.setZ(i, (z / r) * r * groove);
+    }
   }
-  /* 柱础 */
-  const base = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.2, 0.8), goldMat);
-  base.position.y = -height / 2 - 0.1;
-  g.add(base);
+  shaftGeo.computeVertexNormals();
+  g.add(new THREE.Mesh(shaftGeo, pillarMat));
+
+  /* ---- 多层阶梯柱基 ---- */
+  const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.16, 0.98), goldMat);
+  plinth.position.y = -height / 2 + 0.08;
+  g.add(plinth);
+  const baseCyl = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.56, 0.16, 24), pillarMat);
+  baseCyl.position.y = -height / 2 + 0.24;
+  g.add(baseCyl);
+  const baseRing = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.07, 10, 28), goldMat);
+  baseRing.rotation.x = Math.PI / 2;
+  baseRing.position.y = -height / 2 + 0.36;
+  g.add(baseRing);
+
+  /* ---- 科林斯柱头：钟形 + 双层茛苕叶 + 涡卷 + 顶板 ---- */
+  const capY = height / 2;
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.06, 10, 28), goldMat);
+  collar.rotation.x = Math.PI / 2;
+  collar.position.y = capY - 0.02;
+  g.add(collar);
+  /* 钟形冠身 */
+  const bell = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.3, 0.62, 24), goldMat);
+  bell.position.y = capY + 0.3;
+  g.add(bell);
+  /* 茛苕叶（两层，每层 8 片，向外微垂） */
+  const leafGeo = new THREE.ConeGeometry(0.09, 0.55, 6);
+  const up = new THREE.Vector3(0, 1, 0);
+  const dir = new THREE.Vector3();
+  const leafTiers = [
+    { n: 8, r: 0.34, y: capY + 0.08, tilt: 0.62, len: 0.55 },
+    { n: 8, r: 0.44, y: capY + 0.28, tilt: 0.4, len: 0.45 },
+  ];
+  leafTiers.forEach((tier, ti) => {
+    for (let i = 0; i < tier.n; i++) {
+      const a = (i / tier.n) * Math.PI * 2 + (ti ? Math.PI / tier.n : 0);
+      const leaf = new THREE.Mesh(ti ? new THREE.ConeGeometry(0.07, tier.len, 6) : leafGeo, goldMat);
+      dir.set(Math.cos(a), -tier.tilt * 0.7 + 0.55, Math.sin(a)).normalize();
+      leaf.quaternion.setFromUnitVectors(up, dir);
+      leaf.position.set(Math.cos(a) * tier.r, tier.y, Math.sin(a) * tier.r);
+      leaf.position.addScaledVector(dir, tier.len * 0.28);
+      g.add(leaf);
+    }
+  });
+  /* 四角涡卷 */
+  for (let sx of [-1, 1]) for (let sz of [-1, 1]) {
+    const vol = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.035, 8, 18), goldMat);
+    vol.position.set(sx * 0.36, capY + 0.52, sz * 0.36);
+    vol.rotation.set(Math.PI / 2, 0, 0);
+    g.add(vol);
+  }
+  /* 顶板（abacus） */
+  const abacus = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.14, 0.92), goldMat);
+  abacus.position.y = capY + 0.66;
+  g.add(abacus);
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.07, 1.02), goldMat);
+  slab.position.y = capY + 0.77;
+  g.add(slab);
+
+  /* ---- 柱基玫瑰花环 + 常春藤 ---- */
+  const wreath = new THREE.Mesh(
+    new THREE.TorusGeometry(0.52, 0.07, 8, 32),
+    new THREE.MeshStandardMaterial({ color: 0x7d8c6e, roughness: 0.8, metalness: 0.05 })
+  );
+  wreath.rotation.x = Math.PI / 2;
+  wreath.position.y = -height / 2 + 0.42;
+  g.add(wreath);
+  const roseTex = makeRoseTexture(128, "white");
+  const rosePinkTex = makeRoseTexture(128, "pink");
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2;
+    const sp2 = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: i % 3 === 0 ? rosePinkTex : roseTex, transparent: true, depthWrite: false, opacity: 0.95,
+    }));
+    sp2.scale.set(0.34, 0.34, 1);
+    sp2.position.set(Math.cos(a) * 0.52, -height / 2 + 0.5, Math.sin(a) * 0.52);
+    g.add(sp2);
+  }
   return g;
 }
 
@@ -851,30 +979,423 @@ export function buildGrandFloor(useReflector = false) {
   return grp;
 }
 
-/* 殿堂组合（拱门 + 6立柱 + 吊灯 + 地面 + 天花板光晕） */
+/* ================= 殿堂仪式空间填充构件 ================= */
+
+/* 几何体合并（InstancedMesh 用，降低 draw call） */
+function _mergeGeoms(parts) {
+  const pos = [], nrm = [], uv = [];
+  for (const item of parts) {
+    let g = item.geo;
+    if (item.m) { g = g.clone(); g.applyMatrix4(item.m); }
+    g = g.index ? g.toNonIndexed() : g;
+    const p = g.attributes.position, n = g.attributes.normal, u = g.attributes.uv;
+    for (let i = 0; i < p.count; i++) {
+      pos.push(p.getX(i), p.getY(i), p.getZ(i));
+      nrm.push(n.getX(i), n.getY(i), n.getZ(i));
+      uv.push(u ? u.getX(i) : 0, u ? u.getY(i) : 0);
+    }
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  out.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+  out.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  return out;
+}
+function _m4(x, y, z, rx = 0, ry = 0, rz = 0) {
+  const m = new THREE.Matrix4();
+  m.makeRotationFromEuler(new THREE.Euler(rx, ry, rz));
+  m.setPosition(x, y, z);
+  return m;
+}
+
+/* 白色长绒地毯纹理（金边） */
+function makeCarpetTexture() {
+  const { canvas, ctx } = makeCanvas(256, 1024);
+  ctx.fillStyle = "#f7f2e6";
+  ctx.fillRect(0, 0, 256, 1024);
+  /* 长绒噪点 */
+  for (let i = 0; i < 2600; i++) {
+    ctx.fillStyle = Math.random() > 0.5 ? "rgba(255,255,255,.10)" : "rgba(190,170,140,.07)";
+    ctx.fillRect(Math.random() * 256, Math.random() * 1024, 1.6, 1.6);
+  }
+  /* 金色双边线 */
+  ctx.fillStyle = "#c9a24e";
+  ctx.fillRect(14, 0, 5, 1024); ctx.fillRect(237, 0, 5, 1024);
+  ctx.fillStyle = "rgba(201,162,78,.5)";
+  ctx.fillRect(26, 0, 2, 1024); ctx.fillRect(228, 0, 2, 1024);
+  /* 中央淡金虚线 */
+  ctx.strokeStyle = "rgba(201,162,78,.35)";
+  ctx.lineWidth = 2; ctx.setLineDash([14, 18]);
+  ctx.beginPath(); ctx.moveTo(128, 0); ctx.lineTo(128, 1024); ctx.stroke();
+  return toTexture(canvas);
+}
+
+/* T 台白地毯 */
+function buildAisleCarpet() {
+  const carpet = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.4, 9.2),
+    new THREE.MeshStandardMaterial({
+      map: makeCarpetTexture(), roughness: 0.95, metalness: 0,
+      emissive: 0x2e2818, emissiveIntensity: 0.12,
+    })
+  );
+  carpet.rotation.x = -Math.PI / 2;
+  carpet.position.set(0, -3.47, 3.0);
+  return carpet;
+}
+
+/* 金色落地烛台（合并几何，烛光为发光点云） */
+function buildAisleDecor() {
+  const g = new THREE.Group();
+  const goldMat = new THREE.MeshStandardMaterial({
+    color: 0xc2a05a, metalness: 0.7, roughness: 0.4,
+    emissive: 0x2a1e08, emissiveIntensity: 0.3,
+  });
+  /* 烛台几何（基座/杆/托盘/三枝） */
+  const candleParts = [];
+  const cyl = (r, h, x, y, z) => ({ geo: new THREE.CylinderGeometry(r, r * 1.15, h, 10), m: _m4(x, y, z) });
+  candleParts.push(cyl(0.16, 0.08, 0, 0.04, 0));
+  candleParts.push(cyl(0.035, 1.1, 0, 0.62, 0));
+  candleParts.push(cyl(0.1, 0.05, 0, 1.18, 0));
+  candleParts.push(cyl(0.05, 0.22, 0, 1.32, 0));
+  /* 侧枝 */
+  for (const s of [-1, 1]) {
+    const arm = { geo: new THREE.CylinderGeometry(0.02, 0.02, 0.5, 6), m: _m4(s * 0.22, 1.12, 0, 0, 0, Math.PI / 2) };
+    candleParts.push(arm);
+    candleParts.push(cyl(0.04, 0.16, s * 0.44, 1.12, 0));
+  }
+  const candleGeo = _mergeGeoms(candleParts);
+
+  /* 花艺路引（金色花瓮 + 玫瑰球） */
+  const urnParts = [
+    cyl(0.2, 0.26, 0, 0.13, 0),
+    cyl(0.1, 0.2, 0, 0.36, 0),
+  ];
+  const urnGeo = _mergeGeoms(urnParts);
+
+  const spots = [
+    /* z: 烛台与花艺交替沿 T 台两侧 */
+    { z: 6.6, type: "candle" }, { z: 5.4, type: "urn" },
+    { z: 4.2, type: "candle" }, { z: 3.0, type: "urn" },
+    { z: 1.8, type: "candle" }, { z: 0.6, type: "urn" },
+    { z: -0.6, type: "candle" }, { z: -1.4, type: "urn" },
+  ];
+  const candlePositions = [];
+  const urnPositions = [];
+  for (const side of [-1, 1]) {
+    for (const s of spots) {
+      if (s.type === "candle") candlePositions.push([side * 1.6, 0, s.z]);
+      else urnPositions.push([side * 1.6, 0, s.z]);
+    }
+  }
+  const candleIM = new THREE.InstancedMesh(candleGeo, goldMat, candlePositions.length);
+  const urnIM = new THREE.InstancedMesh(urnGeo, goldMat, urnPositions.length);
+  const dummy = new THREE.Object3D();
+  candlePositions.forEach((p, i) => { dummy.position.set(p[0], -3.5, p[2]); dummy.updateMatrix(); candleIM.setMatrixAt(i, dummy.matrix); });
+  urnPositions.forEach((p, i) => { dummy.position.set(p[0], -3.5, p[2]); dummy.updateMatrix(); urnIM.setMatrixAt(i, dummy.matrix); });
+  g.add(candleIM, urnIM);
+
+  /* 烛火点云（暖色，辉光）：烛台中心烛火 + 侧枝烛火 */
+  const flamePos = [];
+  spots.forEach((s) => {
+    if (s.type !== "candle") return;
+    for (const side of [-1, 1]) {
+      flamePos.push(side * 1.6, -2.05, s.z);   /* 中心烛火 */
+      flamePos.push(side * 1.6 + side * 0.44, -2.32, s.z); /* 侧枝烛火 */
+    }
+  });
+  const fGeo = new THREE.BufferGeometry();
+  fGeo.setAttribute("position", new THREE.Float32BufferAttribute(flamePos, 3));
+  const flameMat = new THREE.PointsMaterial({
+    map: makeGlowTexture(128, [255, 205, 120]),
+    color: 0xffd9a0, size: 0.55, transparent: true, opacity: 0.95,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  const flames = new THREE.Points(fGeo, flameMat);
+  g.add(flames);
+
+  /* 花艺路引玫瑰（精灵簇） */
+  const roseTex = makeRoseTexture(128, "white");
+  const rosePinkTex = makeRoseTexture(128, "pink");
+  urnPositions.forEach((p, i) => {
+    for (let k = 0; k < 4; k++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: k % 3 === 0 ? rosePinkTex : roseTex, transparent: true, depthWrite: false, opacity: 0.95,
+      }));
+      const s = 0.3 + Math.random() * 0.12;
+      sp.scale.set(s, s, 1);
+      sp.position.set(p[0] + (Math.random() - 0.5) * 0.3, -3.0 + Math.random() * 0.35, p[2] + (Math.random() - 0.5) * 0.3);
+      g.add(sp);
+    }
+  });
+
+  g.userData.flameMat = flameMat;
+  return g;
+}
+
+/* 竹节椅阵列（InstancedMesh：金框/象牙坐垫/雪纺飘带/椅背花束，LOD 远景简化） */
+function buildChairRows() {
+  const g = new THREE.Group();
+  const chairGold = new THREE.MeshStandardMaterial({
+    color: 0xc9a24e, metalness: 0.75, roughness: 0.35,
+    emissive: 0x2a1e08, emissiveIntensity: 0.25,
+  });
+  const ivoryFabric = new THREE.MeshStandardMaterial({
+    color: 0xf6efe0, roughness: 0.9, metalness: 0,
+    emissive: 0x2a2414, emissiveIntensity: 0.1,
+  });
+  const ribbonMat = new THREE.MeshStandardMaterial({
+    color: 0xfffaf2, transparent: true, opacity: 0.55,
+    roughness: 1, metalness: 0, side: THREE.DoubleSide, depthWrite: false,
+  });
+
+  /* ---- 金框（合并） ---- */
+  const frameParts = [];
+  const cyl = (r, h, x, y, z) => ({ geo: new THREE.CylinderGeometry(r, r, h, 8), m: _m4(x, y, z) });
+  const box = (w, h, d, x, y, z) => ({ geo: new THREE.BoxGeometry(w, h, d), m: _m4(x, y, z) });
+  /* 前腿 */
+  frameParts.push(cyl(0.025, 0.55, -0.19, 0.275, 0.17));
+  frameParts.push(cyl(0.025, 0.55, 0.19, 0.275, 0.17));
+  /* 后高柱 */
+  frameParts.push(cyl(0.028, 1.35, -0.19, 0.675, -0.19));
+  frameParts.push(cyl(0.028, 1.35, 0.19, 0.675, -0.19));
+  /* 座面框 + 侧栏 */
+  frameParts.push(box(0.44, 0.05, 0.4, 0, 0.56, 0));
+  frameParts.push(box(0.04, 0.04, 0.36, -0.19, 0.56, 0));
+  frameParts.push(box(0.04, 0.04, 0.36, 0.19, 0.56, 0));
+  /* 椅背顶栏/中栏 */
+  frameParts.push(box(0.44, 0.06, 0.05, 0, 1.3, -0.19));
+  frameParts.push(box(0.4, 0.04, 0.04, 0, 1.05, -0.19));
+  /* 椅背竖棂 */
+  frameParts.push(cyl(0.012, 0.5, -0.12, 1.05, -0.19));
+  frameParts.push(cyl(0.012, 0.5, 0, 1.05, -0.19));
+  frameParts.push(cyl(0.012, 0.5, 0.12, 1.05, -0.19));
+  const frameGeo = _mergeGeoms(frameParts);
+
+  /* ---- 坐垫 ---- */
+  const cushGeo = _mergeGeoms([box(0.4, 0.08, 0.36, 0, 0.62, 0.02)]);
+
+  /* ---- 雪纺飘带（双条） ---- */
+  const ribbonGeo = _mergeGeoms([
+    { geo: new THREE.PlaneGeometry(0.1, 0.6), m: _m4(-0.1, 1.02, -0.27, 0, 0, 0.08) },
+    { geo: new THREE.PlaneGeometry(0.1, 0.6), m: _m4(0.1, 1.02, -0.27, 0, 0, -0.08) },
+  ]);
+  /* ---- 椅背小花束 ---- */
+  const flowerParts = [];
+  for (let k = 0; k < 3; k++) {
+    flowerParts.push({ geo: new THREE.OctahedronGeometry(0.055, 0), m: _m4((k - 1) * 0.07, 1.42 + (k === 1 ? 0.05 : 0), -0.26) });
+  }
+  const flowerGeo = _mergeGeoms(flowerParts);
+
+  /* ---- 布局：4 排 × 两侧各 2 椅 ---- */
+  const rows = [6.4, 4.6, 2.8, 1.0];
+  const layout = [];
+  rows.forEach((z, ri) => {
+    for (const side of [-1, 1]) {
+      layout.push({ x: side * 2.35, z, ry: side > 0 ? -Math.PI / 2 : Math.PI / 2, rich: ri < 2 });
+      layout.push({ x: side * 3.2, z: z + 0.4, ry: side > 0 ? -Math.PI / 2 : Math.PI / 2, rich: ri < 2 });
+    }
+  });
+  const frameIM = new THREE.InstancedMesh(frameGeo, chairGold, layout.length);
+  const cushIM = new THREE.InstancedMesh(cushGeo, ivoryFabric, layout.length);
+  const ribbonIM = new THREE.InstancedMesh(ribbonGeo, ribbonMat, layout.filter(l => l.rich).length);
+  const flowerIM = new THREE.InstancedMesh(flowerGeo, ivoryFabric, layout.filter(l => l.rich).length);
+  const dummy = new THREE.Object3D();
+  let ri2 = 0;
+  layout.forEach((l, i) => {
+    dummy.position.set(l.x, -3.5, l.z);
+    dummy.rotation.set(0, l.ry, 0);
+    dummy.updateMatrix();
+    frameIM.setMatrixAt(i, dummy.matrix);
+    cushIM.setMatrixAt(i, dummy.matrix);
+    if (l.rich) { ribbonIM.setMatrixAt(ri2, dummy.matrix); flowerIM.setMatrixAt(ri2, dummy.matrix); ri2++; }
+  });
+  g.add(frameIM, cushIM, ribbonIM, flowerIM);
+  g.userData.ribbonMat = ribbonMat;
+  return g;
+}
+
+/* 暖色灯串（T 台上方悬垂，Points 辉光） */
+function buildStringLights() {
+  const g = new THREE.Group();
+  const pos = [];
+  for (const x of [-1.5, 0, 1.5]) {
+    for (let i = 0; i <= 18; i++) {
+      const u = i / 18;
+      const z = 7.2 - u * 9.4;
+      const sag = Math.sin(u * Math.PI) * 1.1;
+      pos.push(x, 4.6 - sag, z);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({
+    map: makeGlowTexture(64, [255, 214, 140]),
+    color: 0xffe0b0, size: 0.3, transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true,
+  });
+  g.add(new THREE.Points(geo, mat));
+  g.userData.mat = mat;
+  return g;
+}
+
+/* 半透明白纱幔（顶部垂下，微风摆动） */
+function buildDrapes() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xfffaf0, transparent: true, opacity: 0.3,
+    roughness: 1, metalness: 0, side: THREE.DoubleSide, depthWrite: false,
+  });
+  const drapes = [];
+  const defs = [
+    { x: -3.6, z: 6.4, w: 2.4, h: 5.2, ry: 0.32, ph: 0 },
+    { x: 3.6, z: 6.4, w: 2.4, h: 5.2, ry: -0.32, ph: 2.1 },
+    { x: 0, z: 7.6, w: 3.0, h: 4.2, ry: 0, ph: 4.2 },
+  ];
+  defs.forEach((d) => {
+    const geo = new THREE.PlaneGeometry(d.w, d.h, 12, 18);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(d.x, d.h / 2 - 0.6, d.z);
+    mesh.rotation.y = d.ry;
+    g.add(mesh);
+    drapes.push({ mesh, base: geo.attributes.position.array.slice(0), w: d.w, h: d.h, ph: d.ph });
+  });
+  g.userData.drapes = drapes;
+  return g;
+}
+
+/* 前景顶部垂坠花环（藤蔓帘） */
+function buildTopGarland() {
+  const g = new THREE.Group();
+  const vineMat = new THREE.MeshStandardMaterial({
+    color: 0x7d8c6e, roughness: 0.85, metalness: 0.05,
+    emissive: 0x1a2010, emissiveIntensity: 0.2,
+  });
+  /* 主蔓（U 形垂弧） */
+  const pts = [
+    new THREE.Vector3(-4.2, 4.6, 6.6),
+    new THREE.Vector3(-2, 3.9, 6.6),
+    new THREE.Vector3(0, 3.7, 6.6),
+    new THREE.Vector3(2, 3.9, 6.6),
+    new THREE.Vector3(4.2, 4.6, 6.6),
+  ];
+  const curve = new THREE.CatmullRomCurve3(pts);
+  g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 48, 0.05, 6, false), vineMat));
+  /* 垂吊藤条 */
+  for (let i = 0; i < 7; i++) {
+    const x = -3.6 + i * 1.2;
+    const len = 0.7 + (i % 3) * 0.45;
+    const strand = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(x, 4.0 - Math.abs(x) * 0.08, 6.6),
+      new THREE.Vector3(x + 0.15, 4.0 - len * 0.6, 6.7),
+      new THREE.Vector3(x - 0.1, 4.0 - len, 6.6),
+    ]);
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(strand, 12, 0.02, 5, false), vineMat));
+  }
+  /* 尤加利叶 + 白玫瑰 */
+  const eucMat = new THREE.MeshStandardMaterial({
+    map: makeEucalyptusTexture(256), transparent: true, roughness: 0.7,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  const roseTex = makeRoseTexture(128, "white");
+  const rosePinkTex = makeRoseTexture(128, "pink");
+  for (let i = 0; i <= 22; i++) {
+    const p = curve.getPoint(i / 22);
+    const leaf = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.7), eucMat);
+    leaf.position.copy(p);
+    leaf.position.z += 0.05;
+    leaf.rotation.z = (i / 22) * Math.PI;
+    g.add(leaf);
+    if (i % 3 === 0) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: i % 6 === 0 ? rosePinkTex : roseTex, transparent: true, depthWrite: false, opacity: 0.95,
+      }));
+      const s = 0.42;
+      sp.scale.set(s, s, 1);
+      sp.position.copy(p);
+      sp.position.y -= 0.1;
+      sp.position.z += 0.1;
+      g.add(sp);
+    }
+  }
+  return g;
+}
+
+/* 远景绿植墙（虚化背景，防穿帮 + 纵深） */
+function buildGreeneryBackdrop() {
+  const { canvas, ctx } = makeCanvas(512, 256);
+  const bg = ctx.createLinearGradient(0, 0, 0, 256);
+  bg.addColorStop(0, "#4a5a44");
+  bg.addColorStop(0.6, "#3a4a36");
+  bg.addColorStop(1, "#2c3a2a");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 512, 256);
+  /* 树冠剪影 */
+  for (let i = 0; i < 60; i++) {
+    ctx.fillStyle = `rgba(${40 + Math.random() * 30},${60 + Math.random() * 40},${40 + Math.random() * 25},.5)`;
+    ctx.beginPath();
+    ctx.arc(Math.random() * 512, 60 + Math.random() * 140, 20 + Math.random() * 40, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const tex = toTexture(canvas);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(26, 11),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.75, depthWrite: false, fog: true })
+  );
+  mesh.position.set(0, 0.5, -9);
+  return mesh;
+}
+
+/* 殿堂组合（拱门 + 科林斯立柱 + T台 + 烛台花艺 + 竹节椅 + 灯串 + 纱幔 + 吊灯 + 花环 + 绿植背景） */
 export function buildHall(useReflector = false) {
   const g = new THREE.Group();
+
+  /* 远景绿植墙 */
+  g.add(buildGreeneryBackdrop());
 
   /* 拱门花门（中央） */
   const arch = buildGardenArch(7);
   arch.position.set(0, -3.5, 0);
   g.add(arch);
 
-  /* 6 根立柱（左右各 3） */
+  /* 6 根科林斯立柱（左右各 3） */
   for (let side of [-1, 1]) {
     for (let i = 0; i < 3; i++) {
       const p = buildPillar(7);
-      p.position.set(side * 3.5, -3.5 + 3.5, -4 + i * 4);
+      p.position.set(side * 3.6, -3.5 + 3.5, -4 + i * 4);
       g.add(p);
     }
   }
 
-  /* 水晶吊灯（拱门正上方） */
-  const chandelier = buildChandelier();
-  chandelier.position.set(0, 2.5, 0);
-  g.add(chandelier);
+  /* T 台白地毯 */
+  g.add(buildAisleCarpet());
+  /* 烛台 + 花艺路引 */
+  const aisleDecor = buildAisleDecor();
+  g.add(aisleDecor);
+  /* 竹节椅阵列 */
+  const chairRows = buildChairRows();
+  g.add(chairRows);
 
-  /* 地面由全局 buildGrandFloor 统一提供（跨章节镜面），此处不再添加 */
+  /* 水晶吊灯（拱门正上方 + T台两盏副灯） */
+  const chandelier = buildChandelier();
+  chandelier.position.set(0, 2.6, 0);
+  g.add(chandelier);
+  const miniLights = [];
+  for (const z of [4.6, -3.2]) {
+    const m = buildChandelier();
+    m.scale.setScalar(0.6);
+    m.position.set(0, 3.1, z);
+    g.add(m);
+    miniLights.push(m);
+  }
+  /* 暖色灯串 */
+  const stringLights = buildStringLights();
+  g.add(stringLights);
+
+  /* 顶部垂坠纱幔 + 前景花环 */
+  const drapes = buildDrapes();
+  g.add(drapes);
+  g.add(buildTopGarland());
 
   /* 天花板光晕板 */
   const ceilGlow = new THREE.Sprite(new THREE.SpriteMaterial({
@@ -887,6 +1408,10 @@ export function buildHall(useReflector = false) {
   g.add(ceilGlow);
 
   g.userData.chandelier = chandelier;
+  g.userData.miniLights = miniLights;
+  g.userData.flameMat = aisleDecor.userData.flameMat;
+  g.userData.stringMat = stringLights.userData.mat;
+  g.userData.drapes = drapes.userData.drapes;
   return g;
 }
 
@@ -973,98 +1498,41 @@ export function buildPhotoFrame(w, h) {
   return g;
 }
 
-/* 照片墙（弧形排列 cols×rows） */
+/* 照片墙 · 360° 圆环轮播画廊（Carousel）：
+   所有相框围绕中心 Y 轴均匀排成圆环，正面朝内（面向圆心观者），
+   由 main.js 旋转整组；正前相框自动放大提亮，两侧/背后渐隐。 */
 export function buildPhotoWall(cols = 5, rows = 3) {
   const g = new THREE.Group();
-  const R = App.isMobile ? 14 : 18;
-  const colSpan = 0.5;
-  const dA = colSpan / (cols - 1);
-  const rowY = [1.6, 0.0, -1.6];
-  const rowZ = [-0.5, 0, 0.5];
-  const FW = 2.4, FH = 1.8;  /* 4:3 */
+  const N = cols * rows;
+  const STEP = (Math.PI * 2) / N;                 /* 每张相框占 24° */
+  const R = App.isMobile ? 6.8 : 7.6;             /* 环半径（相邻间距≈0.42R，不重叠） */
+  const FW = 2.0, FH = 1.5;                        /* 4:3 */
 
   const frames = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const slot = r * cols + c + 1;
-      const angle = -colSpan / 2 + c * dA;
-      const f = buildPhotoFrame(FW, FH);
-      f.position.set(R * Math.sin(angle), rowY[r], -R * Math.cos(angle) + rowZ[r]);
-      f.rotation.y = angle;
-      f.userData.slot = slot;
-      f.userData.baseY = rowY[r];
-      f.userData.phase = Math.random() * Math.PI * 2;
-      f.userData.speed = 0.5 + Math.random() * 0.4;
-      g.add(f);
-      frames.push(f);
-    }
+  for (let i = 0; i < N; i++) {
+    const slot = i + 1;
+    const alpha = i * STEP;                        /* 相对中心的方位角 */
+    const f = buildPhotoFrame(FW, FH);
+    /* 轻微高度起伏（波浪），增加生气但不影响对焦 */
+    const y = Math.sin(alpha * 2) * 0.28 + (Math.random() - 0.5) * 0.12;
+    f.position.set(R * Math.sin(alpha), y, -R * Math.cos(alpha));
+    f.rotation.y = -alpha;                          /* 正面朝内（面向圆心观者） */
+    f.userData.slot = slot;
+    f.userData.angle = alpha;
+    f.userData.baseY = y;
+    f.userData.phase = Math.random() * Math.PI * 2;
+    f.userData.speed = 0.5 + Math.random() * 0.4;
+    /* 找到相框背后的光晕精灵，供焦点提亮 */
+    f.userData.glow = null;
+    f.traverse((o) => { if (o.isSprite && o.material && o.material.blending === THREE.AdditiveBlending) f.userData.glow = o; });
+    g.add(f);
+    frames.push(f);
   }
-  /* 光影扫过精灵 */
-  const sweep = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: makeGlowTexture(128, [255, 240, 200]),
-    transparent: true, opacity: 0.12,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  }));
-  sweep.scale.set(4, 4, 1);
-  g.add(sweep);
 
   g.userData.frames = frames;
   g.userData.R = R;
-  g.userData.sweep = sweep;
-  g.userData.colSpan = colSpan;
-  return g;
-}
-
-/* 时间线（垂直金线 + 节点圆点 + 相框） */
-export function buildTimeline(nodes) {
-  const g = new THREE.Group();
-  const goldMat = new THREE.MeshStandardMaterial({
-    color: 0xd4af37, metalness: 0.8, roughness: 0.3,
-    emissive: 0x3a2a08, emissiveIntensity: 0.35,
-  });
-
-  /* 垂直金色线 */
-  const linePts = [
-    new THREE.Vector3(0, 6, 0), new THREE.Vector3(0, -6 - nodes.length * 2, 0),
-  ];
-  const lineCurve = new THREE.CatmullRomCurve3(linePts);
-  const line = new THREE.Mesh(new THREE.TubeGeometry(lineCurve, 2, 0.04, 8, false), goldMat);
-  g.add(line);
-
-  /* 节点 */
-  const nodeObjs = [];
-  nodes.forEach((nd, i) => {
-    const y = 4 - i * 2.2;
-    const side = nd.side;
-
-    /* 金色圆点 */
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 12), goldMat);
-    dot.position.set(0, y, 0);
-    g.add(dot);
-
-    /* 脉冲光晕 */
-    const pulse = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: makeGlowTexture(128, [255, 220, 150]),
-      transparent: true, opacity: 0.4,
-      blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    pulse.scale.set(1.2, 1.2, 1);
-    pulse.position.set(0, y, 0.1);
-    g.add(pulse);
-
-    /* 小相框 */
-    const fw = 1.6, fh = 1.2;
-    const frame = buildPhotoFrame(fw, fh);
-    frame.position.set(side * 2.4, y, 0);
-    frame.rotation.y = -side * 0.3;
-    frame.userData.slot = nd.photo;
-    frame.userData.baseY = y;
-    g.add(frame);
-
-    nodeObjs.push({ dot, pulse, frame, y, side, node: nd });
-  });
-
-  g.userData.nodes = nodeObjs;
+  g.userData.step = STEP;
+  g.userData.count = N;
   return g;
 }
 

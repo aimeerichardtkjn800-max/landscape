@@ -211,12 +211,17 @@ body::after {
   line-height: 2;
   letter-spacing: .06em;
   white-space: pre-line;
+  text-shadow: 0 1px 2px rgba(255,248,230,.75), 0 0 10px rgba(255,240,210,.35);
 }
 .sub-text {
   font-size: clamp(.92rem, 2.4vw, 1.08rem);
-  color: rgba(58,46,34,.72);
+  color: rgba(58,46,34,.78);
   margin-top: .9rem;
   letter-spacing: .04em;
+  text-shadow: 0 1px 2px rgba(255,248,230,.7);
+}
+.info-label, .rsvp-field label, .kicker {
+  text-shadow: 0 1px 2px rgba(255,248,230,.6);
 }
 
 /* ---------- 金边卡片 ---------- */
@@ -648,3 +653,65 @@ textarea.text-input { resize: vertical; min-height: 6.4em; line-height: 1.75; }
     0 0 14px rgba(240,214,138,.45);
   will-change: transform, opacity;
 }
+
+/* ============================================================
+   画廊章节：无遮罩卡片 · 顶部精致小标签 + 底部小字幕
+   ============================================================ */
+body.on-ring #scroll-hint { display: none; }  /* 圆环章节用专属底部字幕，避免重复 */
+
+.gallery-section { pointer-events: none; }
+
+.gallery-top-label {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + .9rem);
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  white-space: nowrap;
+  font-family: var(--font-serif);
+  font-size: 12px;                 /* 极小标识，不超过 12px */
+  font-weight: 200;                /* 极细 */
+  letter-spacing: .32em;
+  text-indent: .32em;
+  color: rgba(214,186,120,.55);    /* 淡金，半透明 */
+  opacity: .5;
+  text-shadow: none;
+  pointer-events: none;
+}
+
+.gallery-bottom-hint {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom) + 1.2rem);
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  display: flex; flex-direction: column; align-items: center; gap: .18rem;
+  font-family: var(--font-serif);
+  text-align: center;
+  pointer-events: none;
+  opacity: .55;                    /* 极淡，不抢照片风头 */
+}
+.gallery-bottom-hint span {
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 200;
+  letter-spacing: .22em;
+  text-indent: .22em;
+  color: rgba(160,140,105,.7);
+  text-shadow: none;
+}
+.gallery-bottom-hint .hint-arrow {
+  width: .9rem; height: .9rem;
+  color: rgba(160,140,105,.6);
+  animation: hint-chevron 2.2s ease-in-out infinite;
+}
+
+@media (max-width: 640px) {
+  .gallery-top-label { top: calc(env(safe-area-inset-top) + .7rem); }
+  .gallery-bottom-hint { bottom: calc(env(safe-area-inset-bottom) + .9rem); }
+}
+/* data-animate 淡入结束会 transform:none / opacity:1，需保持标签居中和极低存在感 */
+.gallery-section.active .gallery-top-label,
+.gallery-section.in .gallery-top-label { transform: translateX(-50%); opacity: .5; }
+.gallery-section.active .gallery-bottom-hint,
+.gallery-section.in .gallery-bottom-hint { transform: translateX(-50%); opacity: .55; }
