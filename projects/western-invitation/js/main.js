@@ -585,17 +585,17 @@ window.addEventListener("wheel", (e) => {
 let touchStart = null;
 window.addEventListener("touchstart", (e) => {
   if (App.isOverlayOpen()) return;
-  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, scroll: scroll.target };
+  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, s0: scroll.target };
 }, { passive: true });
 
 window.addEventListener("touchmove", (e) => {
   if (!opened || !touchStart || App.isOverlayOpen()) return;
   const dy = e.touches[0].clientY - touchStart.y;
   if (Math.abs(dy) > 6) {
-    /* 纵向：任意位置直接切换章节（画廊旋转不受任何触摸影响） */
+    /* 纵向：锚点固定，总位移 1:1 映射（禁止逐事件累加，防止轻滑飞多页）；
+       画廊旋转不受任何触摸影响 */
     e.preventDefault();
-    scroll.target = App.clamp(touchStart.scroll + (-dy) * 0.0042, 0, STATIONS - 1);
-    touchStart.scroll = scroll.target;
+    scroll.target = App.clamp(touchStart.s0 + (-dy) * 0.0042, 0, STATIONS - 1);
   }
 }, { passive: false });
 
