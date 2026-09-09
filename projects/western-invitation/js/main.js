@@ -1088,7 +1088,8 @@ async function loadWallPhotos() {
   wallLoaded = true;
   for (let slot = 1; slot <= cfg.photoSlots; slot++) {
     try {
-      const blob = await App.db.getFile(cfg.photoKey(slot));
+      if (slotToFrame[slot] && slotToFrame[slot].userData.filled) continue;
+      const blob = await getPhotoBlob(slot);
       if (blob) setPhoto(slot, blob);
     } catch (e) {}
   }
@@ -1268,10 +1269,23 @@ App.$("#home-btn").addEventListener("click", () => {
   setTimeout(() => { opened = false; envelope.visible = true; }, 2000);
 });
 
+/* 取某槽位照片：优先用户上传（IndexedDB），无则回退内置默认婚纱照 */
+async function getPhotoBlob(slot) {
+  try {
+    const blob = await App.db.getFile(cfg.photoKey(slot));
+    if (blob) return blob;
+  } catch (e) {}
+  const def = cfg.defaultPhotos && cfg.defaultPhotos[slot - 1];
+  if (def) {
+    try { return await (await fetch(def)).blob(); } catch (e) {}
+  }
+  return null;
+}
+
 /* ================= 持久素材预加载（开场前全部缓存，避免进入后马赛克） ================= */
 const photosReady = (async function restore() {
   for (let slot = 1; slot <= cfg.photoSlots; slot++) {
-    try { const blob = await App.db.getFile(cfg.photoKey(slot)); if (blob) setPhoto(slot, blob); } catch (e) {}
+    try { const blob = await getPhotoBlob(slot); if (blob) setPhoto(slot, blob); } catch (e) {}
   }
 })();
 

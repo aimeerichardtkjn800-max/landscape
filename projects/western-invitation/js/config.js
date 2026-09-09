@@ -19,9 +19,17 @@ window.App.config = {
   /* 照片：15 个槽位 */
   photoSlots: 15,
   photoKey: (i) => "photo-" + i,  // IndexedDB file key: photo-1 ~ photo-15
+  /* 默认照片（随请柬内置的婚纱照，槽位无用户上传时回退显示） */
+  defaultPhotos: [
+    "assets/photos/p1.png", "assets/photos/p2.png", "assets/photos/p3.png",
+    "assets/photos/p4.png", "assets/photos/p5.png", "assets/photos/p6.png",
+    "assets/photos/p7.png", "assets/photos/p8.png", "assets/photos/p9.png",
+    "assets/photos/p10.png", "assets/photos/p11.png", "assets/photos/p12.png",
+    "assets/photos/p13.png", "assets/photos/p14.png", "assets/photos/p15.png",
+  ],
 
-  /* 音乐：null = 用内置合成器（Canon in D 风格）；填路径则用文件 */
-  defaultMusic: null,
+  /* 音乐：null = 用内置合成器（Canon in D 风格）；填路径则用文件循环播放 */
+  defaultMusic: "assets/music/bgm.ogg",
 
   /* 色系（CSS 变量与 THREE.Color 共用） */
   theme: {
