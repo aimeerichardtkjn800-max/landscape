@@ -591,8 +591,8 @@ photoWall.userData.frames.forEach((f) => {
 });
 const wallFrames = photoWall.userData.frames;
 const wallStep = photoWall.userData.step;   /* 每张相框角距 (2π/15) */
-/* 照片材质开启透明，供两侧/背后渐隐（景深） */
-wallFrames.forEach((f) => { f.userData.photoMat.transparent = true; });
+/* 照片材质不透明：杜绝重影与半透明透色 */
+wallFrames.forEach((f) => { f.userData.photoMat.transparent = false; f.userData.photoMat.opacity = 1; });
 
 /* 角度归一化到 [-π, π] */
 const wrapPi = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -606,7 +606,7 @@ const easeInOutCubic = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2
 
 const ringControllers = [];
 function createRing(station, group, frames, step) {
-  frames.forEach((f) => { f.userData.photoMat.transparent = true; });
+  frames.forEach((f) => { f.userData.photoMat.transparent = false; f.userData.photoMat.opacity = 1; });
   const ring = { station, group, frames, step, st: {
     cur: 0, mode: "hold", holdUntil: 0, moveFrom: 0, moveTo: 0, moveStart: 0,
   } };
@@ -650,7 +650,9 @@ function ringUpdate(ring, t) {
     const as = u.aspectScale || { x: 1, y: 1 };
     f.scale.x *= as.x;
     f.scale.y *= as.y;
-    u.photoMat.opacity = vis * (0.55 + 0.45 * focusE);
+    /* 强制不透明：正面照片 100% 实心，背面/侧面照片直接隐藏（无重影/无半透明） */
+    u.photoMat.opacity = 1;
+    f.visible = vis > 0.01;
   }
 }
 tickers.push((t) => { ringControllers.forEach((r) => ringUpdate(r, t)); });
