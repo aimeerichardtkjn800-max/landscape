@@ -253,12 +253,13 @@ export function makeEucalyptusTexture(size = 256) {
 /* ---------------- ⑤ 大理石纹理（立柱/地面） ---------------- */
 export function makeMarbleTexture(size = 512, variant = "floor") {
   const { canvas, ctx } = makeCanvas(size, size);
-  const base = variant === "pillar" ? "#f5f0e8" : "#ece4d4";
+  /* 抛光大理石：浅米白基底 + 浅灰脉络（floor 为抛光地面） */
+  const base = variant === "pillar" ? "#f5f0e8" : "#f5f0eb";
   ctx.fillStyle = base;
   ctx.fillRect(0, 0, size, size);
 
-  /* 大理石纹理：随机贝塞尔 veins */
-  const veinCol = variant === "pillar" ? "rgba(180,160,130,.5)" : "rgba(160,140,100,.55)";
+  /* 大理石纹理：随机贝塞尔 veins（floor 用浅灰脉络） */
+  const veinCol = variant === "pillar" ? "rgba(180,160,130,.5)" : "rgba(150,150,155,.5)";
   ctx.strokeStyle = veinCol;
   ctx.lineWidth = variant === "pillar" ? 1.5 : 2;
   const rnd = App.hashRandom("marble-" + variant);
@@ -299,6 +300,85 @@ export function makeMarbleTexture(size = 512, variant = "floor") {
     ctx.fillRect(0, 0, size, size);
   }
   return toTexture(canvas);
+}
+
+/* ---------------- ⑤b 体积光束纹理（顶亮→底 30%，水平软边） ---------------- */
+export function makeBeamTexture(w = 128, h = 512) {
+  const { canvas, ctx } = makeCanvas(w, h);
+  const img = ctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    /* 沿光束方向衰减：光源端 1.0 → 地面端 0.3 */
+    const along = 1 - y / h;
+    const lengthFade = 0.3 + 0.7 * Math.pow(along, 1.35);
+    for (let x = 0; x < w; x++) {
+      const edge = Math.abs(x / w - 0.5) * 2;          /* 0 中心 → 1 边缘 */
+      const sideFade = Math.pow(Math.max(0, 1 - edge * edge), 1.8);
+      const a = Math.round(255 * lengthFade * sideFade);
+      const i = (y * w + x) * 4;
+      img.data[i] = 255; img.data[i + 1] = 240; img.data[i + 2] = 205; img.data[i + 3] = a;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = toTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  return tex;
+}
+
+/* ---------------- ⑤c 金色光尘粒子（柔圆） ---------------- */
+export function makeDustTexture(size = 64) {
+  const { canvas, ctx } = makeCanvas(size, size);
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, "rgba(255,240,190,1)");
+  g.addColorStop(0.35, "rgba(255,220,140,.55)");
+  g.addColorStop(1, "rgba(255,215,0,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return toTexture(canvas);
+}
+
+/* ---------------- ⑤d 前景失焦花瓣色块（极大柔边，Bokeh 用） ---------------- */
+export function makeBokehTexture(size = 256) {
+  const { canvas, ctx } = makeCanvas(size, size);
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, "rgba(255,255,255,.95)");
+  g.addColorStop(0.45, "rgba(255,244,244,.55)");
+  g.addColorStop(0.8, "rgba(255,235,238,.18)");
+  g.addColorStop(1, "rgba(255,235,238,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  return toTexture(canvas);
+}
+
+/* ---------------- ⑤e 拉丝金属 bump（细密垂直拉丝纹） ---------------- */
+export function makeBrushedBumpTexture(size = 256) {
+  const { canvas, ctx } = makeCanvas(size, size);
+  ctx.fillStyle = "#808080";
+  ctx.fillRect(0, 0, size, size);
+  const rnd = App.hashRandom("brushed-bump");
+  for (let x = 0; x < size; x++) {
+    const v = 128 + (rnd() - 0.5) * 46;
+    ctx.strokeStyle = `rgb(${v | 0},${v | 0},${v | 0})`;
+    ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, size); ctx.stroke();
+  }
+  const tex = toTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 4);
+  return tex;
+}
+
+/* ---------------- ⑤f 布料编织 bump（雪纺/薄纱） ---------------- */
+export function makeClothBumpTexture(size = 256) {
+  const { canvas, ctx } = makeCanvas(size, size);
+  ctx.fillStyle = "#808080";
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = "#a8a8a8";
+  for (let i = 0; i < size; i += 4) { ctx.fillRect(i, 0, 1, size); ctx.fillRect(0, i, size, 1); }
+  ctx.fillStyle = "#606060";
+  for (let i = 2; i < size; i += 4) { ctx.fillRect(i, 0, 1, size); ctx.fillRect(0, i, size, 1); }
+  const tex = toTexture(canvas);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(6, 6);
+  return tex;
 }
 
 /* ---------------- ⑥ 金雕花边框纹理（4:3，中心透明） ---------------- */
@@ -662,10 +742,17 @@ export function buildEnvelope() {
 /* 大理石立柱 · 科林斯式（茛苕叶柱头 + 垂直凹槽柱身 + 多层阶梯柱基 + 玫瑰花环） */
 export function buildPillar(height = 7) {
   const g = new THREE.Group();
-  /* 做旧哑光金（非镜面亮金） */
+  /* 拉丝古铜金：哑光金属质感（柱基/环饰），柱头略亮形成明暗对比 */
+  const brushedBump = makeBrushedBumpTexture(256);
   const goldMat = new THREE.MeshStandardMaterial({
-    color: 0xc2a05a, metalness: 0.6, roughness: 0.55,
-    emissive: 0x2a1e08, emissiveIntensity: 0.22,
+    color: 0xb8860b, metalness: 0.92, roughness: 0.45,
+    bumpMap: brushedBump, bumpScale: 0.02,
+    emissive: 0x2a1e08, emissiveIntensity: 0.15,
+  });
+  const capMat = new THREE.MeshStandardMaterial({
+    color: 0xd9a441, metalness: 0.92, roughness: 0.3,
+    bumpMap: brushedBump, bumpScale: 0.015,
+    emissive: 0x3a2a08, emissiveIntensity: 0.1,
   });
   const pillarMat = new THREE.MeshStandardMaterial({
     map: makeMarbleTexture(512, "pillar"),
@@ -738,10 +825,10 @@ export function buildPillar(height = 7) {
     g.add(vol);
   }
   /* 顶板（abacus） */
-  const abacus = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.14, 0.92), goldMat);
+  const abacus = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.14, 0.92), capMat);
   abacus.position.y = capY + 0.66;
   g.add(abacus);
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.07, 1.02), goldMat);
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.07, 1.02), capMat);
   slab.position.y = capY + 0.77;
   g.add(slab);
 
@@ -914,7 +1001,8 @@ export function buildHallFloor(useReflector = false) {
   }
   /* 移动端：高光大理石地面（低粗糙度 + 高金属度模拟镜面） */
   const mat = new THREE.MeshStandardMaterial({
-    map: marbleTex, roughness: 0.16, metalness: 0.55,
+    map: marbleTex, roughness: 0.18, metalness: 0.5,
+    bumpMap: marbleTex, bumpScale: 0.1,
   });
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(46, 46), mat);
   floor.rotation.x = -Math.PI / 2;
@@ -947,7 +1035,8 @@ export function buildGrandFloor(useReflector = false) {
       new THREE.PlaneGeometry(W, L),
       new THREE.MeshStandardMaterial({
         map: marbleTex, transparent: true, opacity: 0.2,
-        roughness: 0.12, metalness: 0.85,
+        roughness: 0.18, metalness: 0.85,
+        bumpMap: marbleTex, bumpScale: 0.06,
       })
     );
     overlay.rotation.x = -Math.PI / 2;
@@ -1448,11 +1537,12 @@ export function buildPhotoFrame(w, h) {
   photo.position.z = 0.035;
   g.add(photo);
 
-  /* 立体金边框（物理材质，金属光泽） */
+  /* 立体边框：哑光古铜金（与罗马柱统一） */
   const goldFrameMat = new THREE.MeshPhysicalMaterial({
-    color: 0xd9b45c, metalness: 0.65, roughness: 0.3,
-    clearcoat: 0.55, clearcoatRoughness: 0.35,
-    emissive: 0x241a06, emissiveIntensity: 0.25,
+    color: 0xb8860b, metalness: 0.9, roughness: 0.35,
+    clearcoat: 0.25, clearcoatRoughness: 0.45,
+    bumpMap: makeBrushedBumpTexture(128), bumpScale: 0.012,
+    emissive: 0x241a06, emissiveIntensity: 0.2,
   });
   const t = 0.13;
   const barH = new THREE.BoxGeometry(w + 0.36, t, 0.15);
@@ -1465,6 +1555,22 @@ export function buildPhotoFrame(w, h) {
   const barRight = barLeft.clone(); barRight.position.x = w / 2 + linerB + t / 2;
   g.add(barTop, barBot, barLeft, barRight);
 
+  /* 内侧倒角极细亮线高光（模拟金属倒角反光，emissive 0.2） */
+  const edgeMat = new THREE.MeshStandardMaterial({
+    color: 0x4a3508, metalness: 0.9, roughness: 0.35,
+    emissive: 0xffe2a0, emissiveIntensity: 0.2,
+  });
+  const eh = 0.028, edgeZ = 0.115;
+  const edgeH = new THREE.BoxGeometry(w + 0.02, eh, 0.02);
+  const edgeV = new THREE.BoxGeometry(eh, h + 0.02, 0.02);
+  const edgeTop = new THREE.Mesh(edgeH, edgeMat);
+  edgeTop.position.set(0, h / 2 + eh / 2, edgeZ);
+  const edgeBot = edgeTop.clone(); edgeBot.position.y = -(h / 2 + eh / 2);
+  const edgeLeft = new THREE.Mesh(edgeV, edgeMat);
+  edgeLeft.position.set(-(w / 2 + eh / 2), 0, edgeZ);
+  const edgeRight = edgeLeft.clone(); edgeRight.position.x = w / 2 + eh / 2;
+  g.add(edgeTop, edgeBot, edgeLeft, edgeRight);
+
   /* 四角金钉 */
   const studGeo = new THREE.SphereGeometry(0.045, 10, 8);
   [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => {
@@ -1476,8 +1582,8 @@ export function buildPhotoFrame(w, h) {
   /* 金雕花薄片（贴在金边上） */
   const frameMat = new THREE.MeshStandardMaterial({
     map: makeGoldFrameTexture(512, Math.round((512 * h) / w)),
-    transparent: true, roughness: 0.32, metalness: 0.75,
-    emissive: 0x2a1e06, emissiveIntensity: 0.28,
+    transparent: true, roughness: 0.35, metalness: 0.8,
+    emissive: 0x2a1e06, emissiveIntensity: 0.25,
   });
   const frame = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.42, h + 0.42), frameMat);
   frame.position.z = 0.14;

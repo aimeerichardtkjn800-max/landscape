@@ -10,12 +10,13 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
+import { SAOPass } from "three/addons/postprocessing/SAOPass.js";
 import {
   buildEnvelope, buildHall, buildPhotoWall,
   buildInfoCard, buildRsvpCard, buildEndingScene,
   buildGrandFloor,
   makePetalTexture, makeFleckTexture, makeGlowTexture, makePlaceholderTexture,
-  makeGoldFrameTexture,
+  makeGoldFrameTexture, makeBeamTexture, makeDustTexture, makeBokehTexture,
 } from "./factory.js";
 import { initDanmaku } from "./danmaku.js";
 
@@ -60,11 +61,13 @@ let opened = false, opening = false;
 
 /* ================= 渲染器 ================= */
 const QUALITY = [
-  { prCap: 2, samples: 4, bloomScale: 0.45, bloom: 0.28 },
-  { prCap: 1.5, samples: 2, bloomScale: 0.4, bloom: 0.24 },
-  { prCap: 1.25, samples: 0, bloomScale: 0.35, bloom: 0.2 },
+  { prCap: 2, samples: 4, bloomScale: 0.45, bloom: 0.5, sao: true,  dust: 1.0, beam: 1.0 },
+  { prCap: 1.5, samples: 2, bloomScale: 0.4, bloom: 0.42, sao: false, dust: 0.6, beam: 0.8 },
+  { prCap: 1.25, samples: 0, bloomScale: 0.35, bloom: 0.32, sao: false, dust: 0.4, beam: 0.65 },
 ];
 let qualityLevel = 0;
+/* 运行时可调特效对象（体积光束/光尘在场景物件段创建后挂入，供质量分级降级） */
+const fxTune = { dustMat: null, beam: [] };
 
 const canvas = document.getElementById("world-canvas");
 const renderer = new THREE.WebGLRenderer({
@@ -153,11 +156,13 @@ const skyMesh = new THREE.Mesh(skyGeo, skyMat);
 skyMesh.frustumCulled = false;
 scene.add(skyMesh);
 
-/* ---------- 灯光（白光为主，避免偏色） ---------- */
-scene.add(new THREE.AmbientLight(0xffffff, 0.62));
-const dirLight = new THREE.DirectionalLight(0xffffff, 1.05);
-dirLight.position.set(6, 10, 8);
+/* ---------- 灯光：环境柔光 + 左上方45°暖白主光（4500K #FFF4E0） ---------- */
+scene.add(new THREE.AmbientLight(0xfff7ec, 0.6));
+const dirLight = new THREE.DirectionalLight(0xfff4e0, 0.95);  /* ≈环境光1.5倍 */
+dirLight.position.set(-11, 13, stationZ(2) + 8);               /* 场景左上方 */
+dirLight.target.position.set(0, 1.5, stationZ(2) - 3);        /* 斜射向中央T台花门 */
 scene.add(dirLight);
+scene.add(dirLight.target);
 const camLight = new THREE.PointLight(new THREE.Color(T.warm).getHex(), 18, 34, 2);
 camLight.position.set(0, 2.2, 6);
 scene.add(camLight);
@@ -178,12 +183,59 @@ for (const side of [-1, 1]) {
   spotLights.push({ sp, tgt, side });
 }
 
-/* ---------- 后处理 ---------- */
+/* ---------- 后处理（电影级管线：SAO → Bloom → Output → 调色/暗角 → Sharpen → FXAA） ---------- */
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.28, 0.38, 0.92);
+
+/* 环境光遮蔽 SAO（SSAO 系）：桌面高清档开启，移动端关闭以保帧率 */
+let saoPass = null;
+if (!App.isMobile) {
+  saoPass = new SAOPass(scene, camera);
+  saoPass.params.saoIntensity = 0.28;      /* 遮蔽强度（轻微自然接触阴影，避免轮廓黑边） */
+  saoPass.params.saoKernelRadius = 22;      /* 采样半径（半径 0.5 档） */
+  saoPass.params.saoScale = 6;              /* 适配 camera.far=600（示例基准 far≈100） */
+  saoPass.params.saoBlurRadius = 5;
+  saoPass.params.saoBlurStdDev = 2.5;
+  composer.addPass(saoPass);
+}
+
+/* 泛光：只包裹发光体（线性 HDR 阈值 1.05：白墙/纸张不泛光），强度 0.38，永不关闭 */
+const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.38, 0.45, 1.05);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+
+/* 色彩分级 + 暗角：暖调白平衡 / 暗部蓝紫(#1A1A2E 0.1) / 高光暖金 / 暗角 强度0.2 半径0.8 */
+const GradeShader = {
+  uniforms: { tDiffuse: { value: null } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader: `
+    uniform sampler2D tDiffuse; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      vec3 col = c.rgb;
+      float l = dot(col, vec3(0.299,0.587,0.114));
+      /* 暗部蓝紫色调（不死黑，强度 0.1） */
+      float sh = smoothstep(0.6, 0.05, l);
+      col *= mix(vec3(1.0), vec3(0.92,0.94,1.12), sh * 0.35);
+      /* 高光保持暖金 */
+      float hi = smoothstep(0.7, 1.0, l);
+      col = mix(col, col * vec3(1.07,1.02,0.90) + vec3(0.015,0.008,0.0), hi * 0.3);
+      /* 暖白平衡（色温+5）+ 微品红 tint（+2） */
+      col += vec3(0.012, 0.002, 0.004);
+      /* 微提对比与饱和 */
+      col = (col - 0.5) * 1.05 + 0.5;
+      float l2 = dot(col, vec3(0.299,0.587,0.114));
+      col = mix(vec3(l2), col, 1.06);
+      /* 暗角：强度 0.2 / 半径 0.8（边缘压暗） */
+      float d = length(vUv - 0.5) * 1.35;
+      float vig = smoothstep(0.35, 0.8, d);
+      col *= 1.0 - vig * 0.2;
+      gl_FragColor = vec4(col, c.a);
+    }`,
+};
+const gradePass = new ShaderPass(GradeShader);
+composer.addPass(gradePass);
+
 const fxaaPass = new ShaderPass(FXAAShader);
 composer.addPass(fxaaPass);
 const SharpenShader = {
@@ -215,9 +267,17 @@ function applyQuality(lv) {
   bloom.strength = q.bloom;
   fxaaPass.material.uniforms["resolution"].value.set(1 / (w * pr), 1 / (h * pr));
   sharpenPass.material.uniforms["resolution"].value.set(w * pr, h * pr);
+  /* SSAO：仅桌面高清档开启，半分辨率渲染 */
+  if (saoPass) {
+    saoPass.enabled = !!q.sao && !App.isMobile;
+    if (saoPass.enabled) saoPass.setSize(Math.max(2, Math.floor(w * pr * 0.5)), Math.max(2, Math.floor(h * pr * 0.5)));
+  }
+  /* 体积光永不关闭：低档仅降亮度；光尘按档降可见度 */
+  fxTune.beam.forEach((b) => { b.factor = q.beam; });
+  if (fxTune.dustMat) fxTune.dustMat.opacity = 0.42 * q.dust;
   if (lv >= 2) { petals.count = Math.floor(PETAL_COUNT / 2); flecks.visible = false; }
 }
-applyQuality(0);
+applyQuality(App.isMobile ? 1 : 0);
 
 /* ================= 场景物件 ================= */
 const tickers = [];
@@ -272,6 +332,75 @@ hall.userData.chandelier && tickers.push((t) => {
 /* ---------- 全局贯通式镜面大理石地面（横跨所有章节，倒映照片墙/立柱/灯光） ---------- */
 const grandFloor = buildGrandFloor(useReflector);
 scene.add(grandFloor);
+
+/* ---------- 体积光：丁达尔光束（左上斜射花门）+ 金色光尘 ---------- */
+const beamTex = makeBeamTexture(128, 512);
+const beamGroup = new THREE.Group();
+const beamMats = [];
+/* 光源端（左上高处）→ 地面端（T台花门），每条 beam：from/to/宽/亮度 */
+const beamDefs = [
+  { from: new THREE.Vector3(-5.2, 8.8, 3.5), to: new THREE.Vector3(-1.2, -2.8, -7.5), w: 3.4, o: 0.17 },
+  { from: new THREE.Vector3(-3.6, 9.0, 1.5), to: new THREE.Vector3(0.6, -2.8, -5.0), w: 2.5, o: 0.13 },
+  { from: new THREE.Vector3(-6.2, 8.2, 5.0), to: new THREE.Vector3(-2.4, -2.8, -2.8), w: 2.0, o: 0.10 },
+];
+const _upV = new THREE.Vector3(0, 1, 0);
+beamDefs.forEach((b, i) => {
+  const len = b.from.distanceTo(b.to);
+  const mat = new THREE.MeshBasicMaterial({
+    map: beamTex, transparent: true, opacity: b.o,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+    fog: false, color: 0xfff0d0,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(b.w, len), mat);
+  mesh.position.copy(b.from).add(b.to).multiplyScalar(0.5);
+  const dir = b.to.clone().sub(b.from).normalize();
+  mesh.quaternion.setFromUnitVectors(_upV, dir);
+  mesh.rotateY((i - 1) * 0.55);  /* 扇形展开，避免重合 */
+  beamGroup.add(mesh);
+  beamMats.push({ mat, base: b.o, ph: i * 2.1 });
+});
+hall.add(beamGroup);
+tickers.push((t) => {
+  /* 极轻微呼吸闪烁（保持光柱稳定，不喧宾夺主） */
+  beamMats.forEach((b) => { b.mat.opacity = b.base * (0.92 + 0.08 * Math.sin(t * 0.7 + b.ph)); });
+});
+
+/* 金色光尘：光束路径内缓慢漂浮的自发光微粒（数量随质量分级降级） */
+const DUST_COUNT = App.isMobile ? 160 : 280;
+const dustGeo = new THREE.BufferGeometry();
+const dustPos = new Float32Array(DUST_COUNT * 3);
+const dustData = [];
+for (let i = 0; i < DUST_COUNT; i++) {
+  const d = {
+    x: -6 + rnd() * 7, y: -2.5 + rnd() * 10.5, z: -9 + rnd() * 15,
+    ph: rnd() * 6.28, sp: 0.02 + rnd() * 0.04,  /* 漂浮速度 ≤0.06单位/秒（远小于0.01/帧上限量级） */
+    ax: 0.2 + rnd() * 0.35, ay: 0.15 + rnd() * 0.3,
+  };
+  dustData.push(d);
+  dustPos[i * 3] = d.x; dustPos[i * 3 + 1] = d.y; dustPos[i * 3 + 2] = d.z;
+}
+dustGeo.setAttribute("position", new THREE.BufferAttribute(dustPos, 3));
+const dustMat = new THREE.PointsMaterial({
+  map: makeDustTexture(64), color: 0xffd700, size: 0.16, sizeAttenuation: true,
+  transparent: true, opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+});
+const dust = new THREE.Points(dustGeo, dustMat);
+dust.frustumCulled = false;
+hall.add(dust);
+fxTune.dustMat = dustMat;
+tickers.push((t) => {
+  const arr = dustGeo.attributes.position.array;
+  for (let i = 0; i < dustData.length; i++) {
+    const d = dustData[i];
+    arr[i * 3] = d.x + Math.sin(t * d.sp + d.ph) * d.ax;
+    /* 极慢循环下落（10.5 范围缠绕，不跳变）+ 上下漂浮 */
+    let fy = d.y - t * d.sp * 0.25;
+    fy = (((fy + 2.5) % 10.5) + 10.5) % 10.5 - 2.5;
+    arr[i * 3 + 1] = fy + Math.sin(t * d.sp * 0.7 + d.ph * 2) * d.ay;
+    arr[i * 3 + 2] = d.z + Math.cos(t * d.sp * 0.8 + d.ph) * d.ax;
+  }
+  dustGeo.attributes.position.needsUpdate = true;
+});
 
 /* ---------- 照片墙（场景3） ---------- */
 const photoWall = buildPhotoWall(cfg.photoWallCols, cfg.photoWallRows);
@@ -458,6 +587,46 @@ tickers.push((t) => {
   bokehList.forEach(({ sp, d }) => {
     sp.position.set(camera.position.x * 0.7 + d.ox + Math.sin(t * d.drift + d.phase) * 0.5, d.oy + Math.sin(t * d.drift * 0.8 + d.phase) * 0.4, cz - d.oz);
     sp.material.opacity = d.baseOp * (0.75 + 0.25 * Math.sin(t * 0.6 + d.phase));
+  });
+});
+
+/* ---------- 前景失焦玫瑰花瓣（Bokeh 色块，相机跟随左右下角，极慢飘落） ---------- */
+const fgBokeh = new THREE.Group();
+const bokehPetalTex = makeBokehTexture(256);
+const FG_PETALS = [];
+const fgConf = [
+  { x: -1.35, y: -1.55, z: -3.4, s: 1.6, pink: true },
+  { x: -2.15, y: -1.2, z: -4.2, s: 2.15, pink: false },
+  { x: -1.0, y: -1.85, z: -2.8, s: 1.3, pink: false },
+  { x: -2.6, y: -0.7, z: -5.0, s: 1.85, pink: true },
+  { x: 1.35, y: -1.6, z: -3.4, s: 1.6, pink: false },
+  { x: 2.15, y: -1.15, z: -4.2, s: 2.25, pink: true },
+  { x: 1.0, y: -1.85, z: -2.8, s: 1.25, pink: true },
+  { x: 2.65, y: -0.65, z: -5.0, s: 1.9, pink: false },
+];
+fgConf.forEach((c, i) => {
+  const mat = new THREE.SpriteMaterial({
+    map: bokehPetalTex, color: c.pink ? 0xffdfe6 : 0xffffff,
+    transparent: true, opacity: 0.72, depthTest: false, depthWrite: false, fog: false,
+  });
+  mat.rotation = (i % 2 ? 1 : -1) * 0.6;
+  const sp = new THREE.Sprite(mat);
+  sp.scale.set(c.s, c.s * 1.08, 1);
+  sp.position.set(c.x, c.y, c.z);
+  sp.renderOrder = 998;
+  fgBokeh.add(sp);
+  FG_PETALS.push({
+    sp, mat, bx: c.x, by: c.y, ph: i * 1.3,
+    rot: (i % 2 ? 1 : -1) * (0.12 + rnd() * 0.08),   /* 0.1~0.2°/帧 的缓转（rad/秒） */
+  });
+});
+camera.add(fgBokeh);
+scene.add(camera);
+tickers.push((t, dt) => {
+  FG_PETALS.forEach((p) => {
+    p.mat.rotation += p.rot * dt;   /* 极慢旋转（约0.15°/帧） */
+    p.sp.position.y = p.by + Math.sin(t * 0.25 + p.ph) * 0.08;  /* 轻微飘落摆动 */
+    p.sp.position.x = p.bx + Math.sin(t * 0.18 + p.ph * 1.7) * 0.05;
   });
 });
 
@@ -917,15 +1086,17 @@ function resize() {
 window.addEventListener("resize", App.debounce(resize, 150));
 resize();
 
-let fpsFrames = 0, fpsTime = performance.now(), degradeGrace = 2;
+let fpsFrames = 0, fpsTime = performance.now(), degradeGrace = 2, lastFps = 0;
 function autoDegrade(now) {
+  if (document.hidden) { fpsFrames = 0; fpsTime = now; return; }  /* 标签隐藏/后台 rAF 暂停，不计 FPS，避免误降级 */
   fpsFrames++;
   if (now - fpsTime > 3000) {
     const fps = (fpsFrames * 1000) / (now - fpsTime);
+    lastFps = fps;
     fpsFrames = 0; fpsTime = now;
     if (degradeGrace > 0) { degradeGrace--; return; }
-    if (qualityLevel === 0 && fps < 42) applyQuality(1);
-    else if (qualityLevel === 1 && fps < 32) applyQuality(2);
+    if (qualityLevel === 0 && fps < 50) applyQuality(1);
+    else if (qualityLevel === 1 && fps < 40) applyQuality(2);
   }
 }
 
@@ -1006,5 +1177,17 @@ window.__invite = {
   get station() { return activeStation; },
   get dpr() { return renderer.getPixelRatio(); },
   get quality() { return qualityLevel; },
+  setQuality: applyQuality,
+  setSao(on) { if (saoPass) saoPass.enabled = !!on; },
+  get sao() { return saoPass ? saoPass.enabled : false; },
+  get fps() { return Math.round(lastFps); },
+  /* 调试抓图：强制渲染一帧 → 480x270 缩略 jpeg dataURL（供本地落盘人工/自动核验） */
+  grabThumb() {
+    composer.render();
+    const s = document.createElement("canvas"); s.width = 480; s.height = 270;
+    const x = s.getContext("2d");
+    x.drawImage(canvas, 0, 0, s.width, s.height);
+    return s.toDataURL("image/jpeg", 0.7);
+  },
   get ringMode() { return activeStation === 3; },
 };
