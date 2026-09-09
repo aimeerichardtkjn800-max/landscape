@@ -232,7 +232,7 @@ composer.addPass(gradePass);
 const fxaaPass = new ShaderPass(FXAAShader);
 composer.addPass(fxaaPass);
 const SharpenShader = {
-  uniforms: { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1, 1) }, strength: { value: 0.3 } },
+  uniforms: { tDiffuse: { value: null }, resolution: { value: new THREE.Vector2(1, 1) }, strength: { value: 0.08 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
   fragmentShader: `uniform sampler2D tDiffuse; uniform vec2 resolution; uniform float strength; varying vec2 vUv;
     void main(){ vec2 t=1.0/resolution; vec4 c=texture2D(tDiffuse,vUv); vec4 s=texture2D(tDiffuse,vUv)*4.0;
@@ -265,7 +265,7 @@ function applyQuality(lv) {
   if (fxTune.dustMat) fxTune.dustMat.opacity = 0.42 * q.dust;
   if (lv >= 2) { petals.count = Math.floor(PETAL_COUNT / 2); flecks.visible = false; }
 }
-applyQuality(App.isMobile ? 1 : 0);
+applyQuality(0);
 
 /* ================= 场景物件 ================= */
 const tickers = [];
