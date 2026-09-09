@@ -1050,42 +1050,52 @@ const allFrames = [...wallFrames];
 const slotToFrame = {};
 allFrames.forEach((f) => { slotToFrame[f.userData.slot] = f; });
 
+/* 应用照片到相框：返回 Promise，纹理真正上屏后才 resolve 并标记 filled；
+   纹理加载失败则不标记（保持占位），由 fillAllPhotos 的重试逻辑再次补齐。 */
 function setPhoto(slot, blob) {
   const frame = slotToFrame[slot];
-  if (!frame) return;
+  if (!frame) return Promise.resolve(false);
   if (slotUrls[slot]) URL.revokeObjectURL(slotUrls[slot]);
   const url = URL.createObjectURL(blob);
   slotUrls[slot] = url;
-  new THREE.TextureLoader().load(url, (tex) => {
-    tex.colorSpace = THREE.SRGBColorSpace;
-    enrichTexture(tex);
-    /* object-fit: contain —— 缩放整个画框以匹配照片长宽比，
-       照片完整无裁切、无拉伸、无黑边。画框与照片共同缩放，
-       杜绝深色背板外露造成的"黑边/黑条"。 */
-    const photo = frame.userData.photo;
-    photo.scale.set(1, 1, 1);
-    const fw = photo.geometry.parameters.width;
-    const fh = photo.geometry.parameters.height;
-    const frameA = fw / fh;
-    const img = tex.image;
-    tex.repeat.set(1, 1);
-    tex.center.set(0.5, 0.5);
-    if (img && img.width && img.height) {
-      const imgA = img.width / img.height;
-      if (imgA > frameA) {
-        frame.userData.aspectScale = { x: 1, y: frameA / imgA };
-      } else {
-        frame.userData.aspectScale = { x: imgA / frameA, y: 1 };
-      }
-    } else {
-      frame.userData.aspectScale = { x: 1, y: 1 };
-    }
-    const old = frame.userData.photoMat.map;
-    frame.userData.photoMat.map = tex;
-    frame.userData.photoMat.needsUpdate = true;
-    if (old) old.dispose();
+  return new Promise((resolve) => {
+    new THREE.TextureLoader().load(
+      url,
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        enrichTexture(tex);
+        /* object-fit: contain —— 缩放整个画框以匹配照片长宽比，
+           照片完整无裁切、无拉伸、无黑边。画框与照片共同缩放，
+           杜绝深色背板外露造成的"黑边/黑条"。 */
+        const photo = frame.userData.photo;
+        photo.scale.set(1, 1, 1);
+        const fw = photo.geometry.parameters.width;
+        const fh = photo.geometry.parameters.height;
+        const frameA = fw / fh;
+        const img = tex.image;
+        tex.repeat.set(1, 1);
+        tex.center.set(0.5, 0.5);
+        if (img && img.width && img.height) {
+          const imgA = img.width / img.height;
+          if (imgA > frameA) {
+            frame.userData.aspectScale = { x: 1, y: frameA / imgA };
+          } else {
+            frame.userData.aspectScale = { x: imgA / frameA, y: 1 };
+          }
+        } else {
+          frame.userData.aspectScale = { x: 1, y: 1 };
+        }
+        const old = frame.userData.photoMat.map;
+        frame.userData.photoMat.map = tex;
+        frame.userData.photoMat.needsUpdate = true;
+        if (old) old.dispose();
+        frame.userData.filled = true;   /* 仅纹理成功上屏后才标记，失败可被重试补救 */
+        resolve(true);
+      },
+      undefined,
+      () => resolve(false)   /* 纹理加载失败：不标记 filled，等待重试 */
+    );
   });
-  frame.userData.filled = true;
 }
 
 function onFrameClick(slot) {
@@ -1094,17 +1104,10 @@ function onFrameClick(slot) {
   else { pendingSlot = slot; photoInput.click(); }
 }
 
-let wallLoaded = false;
-async function loadWallPhotos() {
-  if (wallLoaded) return;
-  wallLoaded = true;
-  for (let slot = 1; slot <= cfg.photoSlots; slot++) {
-    try {
-      if (slotToFrame[slot] && slotToFrame[slot].userData.filled) continue;
-      const blob = await getPhotoBlob(slot);
-      if (blob) setPhoto(slot, blob);
-    } catch (e) {}
-  }
+/* 进入画廊时再次触发补齐（开场前若有弱网未完成，这里兜底重试）。
+   fillAllPhotos 自身幂等并发安全，重复调用无副作用。 */
+function loadWallPhotos() {
+  fillAllPhotos();
 }
 
 photoInput.addEventListener("change", async () => {
@@ -1298,7 +1301,9 @@ App.$("#home-btn").addEventListener("click", () => {
   setTimeout(() => { opened = false; envelope.visible = true; }, 2000);
 });
 
-/* 取某槽位照片：优先用户上传（IndexedDB），无则回退内置默认婚纱照 */
+/* 取某槽位照片：优先用户上传（IndexedDB），无则回退内置默认婚纱照。
+   内置照片走网络，弱网/抖音微信浏览器偶发请求失败 → 重试 3 次（递增退避），
+   避免个别相框 fetch 失败后永久停在占位图。 */
 async function getPhotoBlob(slot) {
   try {
     const blob = await App.db.getFile(cfg.photoKey(slot));
@@ -1306,17 +1311,48 @@ async function getPhotoBlob(slot) {
   } catch (e) {}
   const def = cfg.defaultPhotos && cfg.defaultPhotos[slot - 1];
   if (def) {
-    try { return await (await fetch(def)).blob(); } catch (e) {}
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const r = await fetch(def, { cache: "force-cache" });
+        if (r && r.ok) return await r.blob();
+      } catch (e) {}
+      await new Promise((res) => setTimeout(res, 350 * (attempt + 1)));
+    }
   }
   return null;
 }
 
-/* ================= 持久素材预加载（开场前全部缓存，避免进入后马赛克） ================= */
-const photosReady = (async function restore() {
+/* 全量补齐照片：并发加载所有未填充相框；仍有缺失则固定退避自动重试。
+   幂等且并发安全（filled / in-flight 双闸），开场预载与进入画廊各自独立重试预算。 */
+const photoInflight = new Set();
+async function fillAllPhotos(remainingRetries = 5) {
+  const tasks = [];
   for (let slot = 1; slot <= cfg.photoSlots; slot++) {
-    try { const blob = await getPhotoBlob(slot); if (blob) setPhoto(slot, blob); } catch (e) {}
+    const frame = slotToFrame[slot];
+    if (frame && !frame.userData.filled && !photoInflight.has(slot)) {
+      photoInflight.add(slot);
+      tasks.push(
+        getPhotoBlob(slot)
+          .then((blob) => (blob ? setPhoto(slot, blob) : false))
+          .catch(() => false)
+          .finally(() => photoInflight.delete(slot))
+      );
+    }
   }
-})();
+  if (tasks.length) await Promise.all(tasks);
+  /* 仍有缺失（弱网慢加载）→ 本次触发的预算内自动重试，确保最终全部上屏 */
+  let missing = 0;
+  for (let slot = 1; slot <= cfg.photoSlots; slot++) {
+    const frame = slotToFrame[slot];
+    if (frame && !frame.userData.filled) missing++;
+  }
+  if (missing > 0 && remainingRetries > 0) {
+    setTimeout(() => fillAllPhotos(remainingRetries - 1), 700);
+  }
+}
+
+/* ================= 持久素材预加载（开场前尽量全部缓存，避免进入后马赛克） ================= */
+const photosReady = fillAllPhotos();
 
 /* ================= 加载闸门：字体 + 照片缓存 + 最短展示（Logo 呼吸一轮）后开场 ================= */
 const fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
@@ -1441,6 +1477,7 @@ window.__invite = {
   get dpr() { return renderer.getPixelRatio(); },
   get quality() { return qualityLevel; },
   setQuality: applyQuality,
+  fillPhotos: fillAllPhotos,
   get fps() { return Math.round(lastFps); },
   /* 调试抓图：强制渲染一帧 → 480x270 缩略 jpeg dataURL（供本地落盘人工/自动核验） */
   grabThumb() {
