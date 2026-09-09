@@ -651,7 +651,6 @@ function ringUpdate(ring, t) {
     f.scale.x *= as.x;
     f.scale.y *= as.y;
     u.photoMat.opacity = vis * (0.55 + 0.45 * focusE);
-    if (u.glow) u.glow.material.opacity = 0.16 + 0.5 * focusE;
   }
 }
 tickers.push((t) => { ringControllers.forEach((r) => ringUpdate(r, t)); });

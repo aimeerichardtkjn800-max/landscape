@@ -572,27 +572,9 @@ export function makeGlowTexture(size = 256, rgb = [255, 200, 120]) {
 /* ---------------- ⑫ 照片占位纹理（象牙白底） ---------------- */
 export function makePlaceholderTexture(w = 512, h = 384) {
   const { canvas, ctx } = makeCanvas(w, h);
-  const bg = ctx.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, "#f3ead8");
-  bg.addColorStop(0.55, "#e9dcc6");
-  bg.addColorStop(1, "#d9c8ac");
-  ctx.fillStyle = bg;
+  /* 纯米色占位，加载前不显示黑屏 */
+  ctx.fillStyle = "#f5f5dc";
   ctx.fillRect(0, 0, w, h);
-
-  /* 花体水印 */
-  ctx.globalAlpha = 0.12;
-  ivoryText(ctx, "&", w / 2, h * 0.42, Math.min(w, h) * 0.4);
-  ctx.globalAlpha = 1;
-
-  /* 虚线提示框 */
-  ctx.strokeStyle = "rgba(212,175,55,.5)";
-  ctx.lineWidth = 2;
-  ctx.setLineDash([10, 8]);
-  const rw = w * 0.62, rh = h * 0.5;
-  ctx.strokeRect((w - rw) / 2, (h - rh) / 2, rw, rh);
-  ctx.setLineDash([]);
-
-  ivoryText(ctx, "Upload Photo", w / 2, h * 0.82, Math.min(w, h) * 0.07);
   return toTexture(canvas);
 }
 
@@ -1504,100 +1486,18 @@ export function buildHall(useReflector = false) {
   return g;
 }
 
-/* 4:3 金雕花相框（照片墙用） */
+/* 无框沉浸式照片面（照片墙用）：仅照片 plane，无相框/背板/边条/装饰 */
 export function buildPhotoFrame(w, h) {
   const g = new THREE.Group();
 
-  /* 背板：象牙白底，避免任何边缘出现黑色条 */
-  const back = new THREE.Mesh(
-    new THREE.BoxGeometry(w + 0.42, h + 0.42, 0.18),
-    new THREE.MeshStandardMaterial({ color: 0xf3ead8, roughness: 0.8, metalness: 0.15 })
-  );
-  back.position.z = -0.09;
-  g.add(back);
-
-  /* 象牙白衬边 */
-  const linerMat = new THREE.MeshStandardMaterial({ color: 0xf3ead8, roughness: 0.9, metalness: 0 });
-  const linerB = 0.08;
-  const linerTop = new THREE.Mesh(new THREE.BoxGeometry(w + linerB * 2, linerB, 0.04), linerMat);
-  linerTop.position.set(0, h / 2 + linerB / 2, 0.01);
-  const linerBot = linerTop.clone(); linerBot.position.y = -(h / 2 + linerB / 2);
-  const linerLeft = new THREE.Mesh(new THREE.BoxGeometry(linerB, h, 0.04), linerMat);
-  linerLeft.position.set(-(w / 2 + linerB / 2), 0, 0.01);
-  const linerRight = linerLeft.clone(); linerRight.position.x = w / 2 + linerB / 2;
-  g.add(linerTop, linerBot, linerLeft, linerRight);
-
-  /* 照片面（占位纹理，上传后替换 map） */
+  /* 照片面：占位纹理（米色），上传后替换为原图 */
   const photoMat = new THREE.MeshBasicMaterial({
     map: makePlaceholderTexture(1024, Math.round((1024 * h) / w)),
     color: 0xffffff, transparent: false, blending: THREE.NormalBlending,
     toneMapped: false, fog: false,
   });
   const photo = new THREE.Mesh(new THREE.PlaneGeometry(w, h), photoMat);
-  photo.position.z = 0.035;
   g.add(photo);
-
-  /* 立体边框：哑光古铜金（与罗马柱统一） */
-  const goldFrameMat = new THREE.MeshPhysicalMaterial({
-    color: 0xb8860b, metalness: 0.9, roughness: 0.35,
-    clearcoat: 0.25, clearcoatRoughness: 0.45,
-    bumpMap: makeBrushedBumpTexture(128), bumpScale: 0.012,
-    emissive: 0x241a06, emissiveIntensity: 0.2,
-  });
-  const t = 0.13;
-  const barH = new THREE.BoxGeometry(w + 0.36, t, 0.15);
-  const barV = new THREE.BoxGeometry(t, h + 0.28, 0.15);
-  const barTop = new THREE.Mesh(barH, goldFrameMat);
-  barTop.position.set(0, h / 2 + linerB + t / 2, 0.06);
-  const barBot = barTop.clone(); barBot.position.y = -(h / 2 + linerB + t / 2);
-  const barLeft = new THREE.Mesh(barV, goldFrameMat);
-  barLeft.position.set(-(w / 2 + linerB + t / 2), 0, 0.05);
-  const barRight = barLeft.clone(); barRight.position.x = w / 2 + linerB + t / 2;
-  g.add(barTop, barBot, barLeft, barRight);
-
-  /* 内侧倒角极细亮线高光（模拟金属倒角反光，emissive 0.2） */
-  const edgeMat = new THREE.MeshStandardMaterial({
-    color: 0x4a3508, metalness: 0.9, roughness: 0.35,
-    emissive: 0xffe2a0, emissiveIntensity: 0.2,
-  });
-  const eh = 0.028, edgeZ = 0.115;
-  const edgeH = new THREE.BoxGeometry(w + 0.02, eh, 0.02);
-  const edgeV = new THREE.BoxGeometry(eh, h + 0.02, 0.02);
-  const edgeTop = new THREE.Mesh(edgeH, edgeMat);
-  edgeTop.position.set(0, h / 2 + eh / 2, edgeZ);
-  const edgeBot = edgeTop.clone(); edgeBot.position.y = -(h / 2 + eh / 2);
-  const edgeLeft = new THREE.Mesh(edgeV, edgeMat);
-  edgeLeft.position.set(-(w / 2 + eh / 2), 0, edgeZ);
-  const edgeRight = edgeLeft.clone(); edgeRight.position.x = w / 2 + eh / 2;
-  g.add(edgeTop, edgeBot, edgeLeft, edgeRight);
-
-  /* 四角金钉 */
-  const studGeo = new THREE.SphereGeometry(0.045, 10, 8);
-  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sy]) => {
-    const stud = new THREE.Mesh(studGeo, goldFrameMat);
-    stud.position.set(sx * (w / 2 + linerB + t / 2), sy * (h / 2 + linerB + t / 2), 0.15);
-    g.add(stud);
-  });
-
-  /* 金雕花薄片（贴在金边上） */
-  const frameMat = new THREE.MeshStandardMaterial({
-    map: makeGoldFrameTexture(512, Math.round((512 * h) / w)),
-    transparent: true, roughness: 0.35, metalness: 0.8,
-    emissive: 0x2a1e06, emissiveIntensity: 0.25,
-  });
-  const frame = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.42, h + 0.42), frameMat);
-  frame.position.z = 0.14;
-  g.add(frame);
-
-  /* 背后柔光晕 */
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: makeGlowTexture(256, [255, 220, 150]),
-    transparent: true, opacity: 0.18,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  }));
-  glow.scale.set(w * 2, h * 2, 1);
-  glow.position.z = -0.5;
-  g.add(glow);
 
   g.userData.photo = photo;
   g.userData.photoMat = photoMat;
@@ -1610,27 +1510,23 @@ export function buildPhotoFrame(w, h) {
 export function buildPhotoWall(cols = 5, rows = 3) {
   const g = new THREE.Group();
   const N = cols * rows;
-  const STEP = (Math.PI * 2) / N;                 /* 每张相框占 24° */
-  const R = App.isMobile ? 6.8 : 7.6;             /* 环半径（相邻间距≈0.42R，不重叠） */
-  const FW = 2.0, FH = 1.5;                        /* 4:3 */
+  const STEP = (Math.PI * 2) / N;                 /* 每张占 24° */
+  const R = App.isMobile ? 6.8 : 7.6;             /* 环半径 */
+  const FW = 2.6, FH = 1.95;                       /* 放大照片，沉浸式无边框 */
 
   const frames = [];
   for (let i = 0; i < N; i++) {
     const slot = i + 1;
-    const alpha = i * STEP;                        /* 相对中心的方位角 */
+    const alpha = i * STEP;
     const f = buildPhotoFrame(FW, FH);
-    /* 轻微高度起伏（波浪），增加生气但不影响对焦 */
     const y = Math.sin(alpha * 2) * 0.28 + (Math.random() - 0.5) * 0.12;
     f.position.set(R * Math.sin(alpha), y, -R * Math.cos(alpha));
-    f.rotation.y = -alpha;                          /* 正面朝内（面向圆心观者） */
+    f.rotation.y = -alpha;
     f.userData.slot = slot;
     f.userData.angle = alpha;
     f.userData.baseY = y;
     f.userData.phase = Math.random() * Math.PI * 2;
     f.userData.speed = 0.5 + Math.random() * 0.4;
-    /* 找到相框背后的光晕精灵，供焦点提亮 */
-    f.userData.glow = null;
-    f.traverse((o) => { if (o.isSprite && o.material && o.material.blending === THREE.AdditiveBlending) f.userData.glow = o; });
     g.add(f);
     frames.push(f);
   }
