@@ -1042,17 +1042,23 @@ function setPhoto(slot, blob) {
   new THREE.TextureLoader().load(url, (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
     enrichTexture(tex);
-    /* object-fit: cover —— 居中裁切，防止不同长宽比的照片被拉伸变形 */
+    /* object-fit: contain —— 完整显示照片，不裁剪、不拉伸
+       缩放 photo mesh 以匹配图片长宽比，画框保持不变 */
+    const photo = frame.userData.photo;
+    const fw = photo.geometry.parameters.width;
+    const fh = photo.geometry.parameters.height;
+    const frameA = fw / fh;
     const img = tex.image;
+    tex.repeat.set(1, 1);
+    tex.center.set(0.5, 0.5);
     if (img && img.width && img.height) {
       const imgA = img.width / img.height;
-      const frameA = frame.userData.photo.geometry.parameters.width /
-                     frame.userData.photo.geometry.parameters.height;
-      tex.center.set(0.5, 0.5);
       if (imgA > frameA) {
-        tex.repeat.set(frameA / imgA, 1);
+        /* 横图：宽度撑满，高度等比缩小 */
+        photo.scale.set(1, frameA / imgA, 1);
       } else {
-        tex.repeat.set(1, imgA / frameA);
+        /* 竖图：高度撑满，宽度等比缩小 */
+        photo.scale.set(imgA / frameA, 1, 1);
       }
     }
     const old = frame.userData.photoMat.map;
