@@ -10,7 +10,6 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
-import { SAOPass } from "three/addons/postprocessing/SAOPass.js";
 import {
   buildEnvelope, buildHall, buildPhotoWall,
   buildInfoCard, buildRsvpCard, buildEndingScene,
@@ -61,9 +60,9 @@ let opened = false, opening = false;
 
 /* ================= 渲染器 ================= */
 const QUALITY = [
-  { prCap: 2, samples: 4, bloomScale: 0.45, bloom: 0.5, sao: true,  dust: 1.0, beam: 1.0 },
-  { prCap: 1.5, samples: 2, bloomScale: 0.4, bloom: 0.42, sao: false, dust: 0.6, beam: 0.8 },
-  { prCap: 1.25, samples: 0, bloomScale: 0.35, bloom: 0.32, sao: false, dust: 0.4, beam: 0.65 },
+  { prCap: 2, samples: 4, bloomScale: 0.45, bloom: 0.5, dust: 1.0, beam: 1.0 },
+  { prCap: 1.5, samples: 2, bloomScale: 0.4, bloom: 0.42, dust: 0.6, beam: 0.8 },
+  { prCap: 1.25, samples: 0, bloomScale: 0.35, bloom: 0.32, dust: 0.4, beam: 0.65 },
 ];
 let qualityLevel = 0;
 /* 运行时可调特效对象（体积光束/光尘在场景物件段创建后挂入，供质量分级降级） */
@@ -183,21 +182,12 @@ for (const side of [-1, 1]) {
   spotLights.push({ sp, tgt, side });
 }
 
-/* ---------- 后处理（电影级管线：SAO → Bloom → Output → 调色/暗角 → Sharpen → FXAA） ---------- */
+/* ---------- 后处理（电影级管线：Bloom → Output → 调色/暗角 → Sharpen → FXAA）
+   注：SSAO/SAO 已移除——实测其 Normal G-Buffer 在本管线（far=600 大场景深度 +
+   薄卡/纱幔/光束等透明体）下整缓冲失效，遮蔽图在轮廓外饱和，产生白斑+黑色
+   锯齿边；调参无法稳定消除。接触感由材质高光/暗角/地面反射承担。 ---------- */
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-
-/* 环境光遮蔽 SAO（SSAO 系）：桌面高清档开启，移动端关闭以保帧率 */
-let saoPass = null;
-if (!App.isMobile) {
-  saoPass = new SAOPass(scene, camera);
-  saoPass.params.saoIntensity = 0.28;      /* 遮蔽强度（轻微自然接触阴影，避免轮廓黑边） */
-  saoPass.params.saoKernelRadius = 22;      /* 采样半径（半径 0.5 档） */
-  saoPass.params.saoScale = 6;              /* 适配 camera.far=600（示例基准 far≈100） */
-  saoPass.params.saoBlurRadius = 5;
-  saoPass.params.saoBlurStdDev = 2.5;
-  composer.addPass(saoPass);
-}
 
 /* 泛光：只包裹发光体（线性 HDR 阈值 1.05：白墙/纸张不泛光），强度 0.38，永不关闭 */
 const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.38, 0.45, 1.05);
@@ -267,11 +257,6 @@ function applyQuality(lv) {
   bloom.strength = q.bloom;
   fxaaPass.material.uniforms["resolution"].value.set(1 / (w * pr), 1 / (h * pr));
   sharpenPass.material.uniforms["resolution"].value.set(w * pr, h * pr);
-  /* SSAO：仅桌面高清档开启，半分辨率渲染 */
-  if (saoPass) {
-    saoPass.enabled = !!q.sao && !App.isMobile;
-    if (saoPass.enabled) saoPass.setSize(Math.max(2, Math.floor(w * pr * 0.5)), Math.max(2, Math.floor(h * pr * 0.5)));
-  }
   /* 体积光永不关闭：低档仅降亮度；光尘按档降可见度 */
   fxTune.beam.forEach((b) => { b.factor = q.beam; });
   if (fxTune.dustMat) fxTune.dustMat.opacity = 0.42 * q.dust;
@@ -1178,8 +1163,6 @@ window.__invite = {
   get dpr() { return renderer.getPixelRatio(); },
   get quality() { return qualityLevel; },
   setQuality: applyQuality,
-  setSao(on) { if (saoPass) saoPass.enabled = !!on; },
-  get sao() { return saoPass ? saoPass.enabled : false; },
   get fps() { return Math.round(lastFps); },
   /* 调试抓图：强制渲染一帧 → 480x270 缩略 jpeg dataURL（供本地落盘人工/自动核验） */
   grabThumb() {
