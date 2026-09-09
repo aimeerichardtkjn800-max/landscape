@@ -646,6 +646,10 @@ function ringUpdate(ring, t) {
 
     f.position.y = u.baseY + Math.sin(t * u.speed + u.phase) * 0.08;
     f.scale.setScalar(0.92 + 0.18 * focusE);
+    /* 照片长宽比适配：画框整体缩放以匹配照片比例（contain，无黑边） */
+    const as = u.aspectScale || { x: 1, y: 1 };
+    f.scale.x *= as.x;
+    f.scale.y *= as.y;
     u.photoMat.opacity = vis * (0.55 + 0.45 * focusE);
     if (u.glow) u.glow.material.opacity = 0.16 + 0.5 * focusE;
   }
@@ -1042,9 +1046,11 @@ function setPhoto(slot, blob) {
   new THREE.TextureLoader().load(url, (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
     enrichTexture(tex);
-    /* object-fit: contain —— 完整显示照片，不裁剪、不拉伸
-       缩放 photo mesh 以匹配图片长宽比，画框保持不变 */
+    /* object-fit: contain —— 缩放整个画框以匹配照片长宽比，
+       照片完整无裁切、无拉伸、无黑边。画框与照片共同缩放，
+       杜绝深色背板外露造成的"黑边/黑条"。 */
     const photo = frame.userData.photo;
+    photo.scale.set(1, 1, 1);
     const fw = photo.geometry.parameters.width;
     const fh = photo.geometry.parameters.height;
     const frameA = fw / fh;
@@ -1054,12 +1060,12 @@ function setPhoto(slot, blob) {
     if (img && img.width && img.height) {
       const imgA = img.width / img.height;
       if (imgA > frameA) {
-        /* 横图：宽度撑满，高度等比缩小 */
-        photo.scale.set(1, frameA / imgA, 1);
+        frame.userData.aspectScale = { x: 1, y: frameA / imgA };
       } else {
-        /* 竖图：高度撑满，宽度等比缩小 */
-        photo.scale.set(imgA / frameA, 1, 1);
+        frame.userData.aspectScale = { x: imgA / frameA, y: 1 };
       }
+    } else {
+      frame.userData.aspectScale = { x: 1, y: 1 };
     }
     const old = frame.userData.photoMat.map;
     frame.userData.photoMat.map = tex;

@@ -1508,10 +1508,10 @@ export function buildHall(useReflector = false) {
 export function buildPhotoFrame(w, h) {
   const g = new THREE.Group();
 
-  /* 背板：深棕实木 */
+  /* 背板：象牙白底，避免任何边缘出现黑色条 */
   const back = new THREE.Mesh(
     new THREE.BoxGeometry(w + 0.42, h + 0.42, 0.18),
-    new THREE.MeshStandardMaterial({ color: 0x3a2a18, roughness: 0.8, metalness: 0.15 })
+    new THREE.MeshStandardMaterial({ color: 0xf3ead8, roughness: 0.8, metalness: 0.15 })
   );
   back.position.z = -0.09;
   g.add(back);
