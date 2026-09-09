@@ -28,6 +28,25 @@
   <!-- 全局 3D 世界画布 -->
   <canvas id="world-canvas" aria-hidden="true"></canvas>
 
+  <!-- 电影式开场黑场遮罩（顶光区域透明，边缘压黑；由 JS 按时间轴淡出） -->
+  <div id="cinema-veil" class="off" aria-hidden="true"></div>
+
+  <!-- ============ 沉浸式加载页：金线 Monogram 钢笔描边·呼吸循环 ============ -->
+  <div id="intro-loader" role="status" aria-label="Loading">
+    <div class="loader-inner">
+      <svg class="monogram" viewBox="0 0 200 200" aria-hidden="true">
+        <path class="mono-stroke s1" pathLength="1" d="M100 18 L182 100 L100 182 L18 100 Z"/>
+        <path class="mono-stroke s2" pathLength="1" d="M100 44 L156 100 L100 156 L44 100 Z"/>
+        <path class="mono-stroke s3" pathLength="1" d="M74 102 Q54 98 42 86 M126 102 Q146 98 158 86"/>
+        <circle class="mono-dot d1" cx="42" cy="86" r="2.4"/>
+        <circle class="mono-dot d2" cx="158" cy="86" r="2.4"/>
+        <text id="mono-initials" class="mono-initials" x="100" y="118" text-anchor="middle">X &amp; X</text>
+      </svg>
+      <p class="loader-text">Preparing Surprise&hellip;</p>
+    </div>
+    <p class="loader-skip">轻触屏幕跳过 · Tap to Skip</p>
+  </div>
+
   <!-- 顶级加载失败提示 -->
   <div id="load-fallback" hidden>
     <p>页面脚本未能加载，请确认整个文件夹完整下载后重新打开。</p>
@@ -71,7 +90,10 @@
 
     <!-- 场景 0：信封开场 -->
     <section class="invite-section center" data-station="0">
-      <p id="open-hint" data-animate>开启请柬 / CLICK TO OPEN</p>
+      <div id="open-hint" data-animate>
+        <svg class="open-hint-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg>
+        <p class="open-hint-label">开启请柬 / CLICK TO OPEN</p>
+      </div>
     </section>
 
     <!-- 场景 1：新人信息 -->
@@ -258,6 +280,19 @@ With love and gratitude, we thank you.</p>
   <!-- 隐藏文件选择器 -->
   <input type="file" id="input-photos" accept="image/*" multiple hidden />
   <input type="file" id="input-music" accept="audio/*" hidden />
+
+  <!-- 加载页 Monogram 首字母：优先取已保存的新人姓名（storage.js 已在 head 载入） -->
+  <script>
+    (function () {
+      try {
+        var info = window.App && App.store ? App.store.get("info", App.defaults && App.defaults.info) : null;
+        var g = (info && info.groom || "X").trim().charAt(0).toUpperCase();
+        var b = (info && info.bride || "X").trim().charAt(0).toUpperCase();
+        var el = document.getElementById("mono-initials");
+        if (el) el.textContent = g + " & " + b;
+      } catch (e) {}
+    })();
+  </script>
 
   <!-- 启动看门狗 -->
   <script>

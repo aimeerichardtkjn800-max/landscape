@@ -100,6 +100,7 @@ camera.lookAt(0, 0, 0);
 const skyGeo = new THREE.SphereGeometry(280, 48, 28);
 const skyMat = new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, fog: false,
+  transparent: true,  /* 开场黑场阶段穹顶淡入（fade uniform） */
   uniforms: {
     top: { value: new THREE.Color(T.skyTop) },
     mid: { value: new THREE.Color(T.skyBot) },
@@ -107,10 +108,11 @@ const skyMat = new THREE.ShaderMaterial({
     horizon: { value: new THREE.Color(T.roseGold) },
     sil: { value: new THREE.Color(0xb39e7e) },   /* 剪影暖灰褐色 */
     gold: { value: new THREE.Color(T.goldLight) },
+    fade: { value: 1.0 },                        /* 开场时间轴驱动：0=黑场 1=完整穹顶 */
   },
   vertexShader: `varying vec3 vPos; void main(){ vPos=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
   fragmentShader: `
-    uniform vec3 top, mid, bot, horizon, sil, gold; varying vec3 vPos;
+    uniform vec3 top, mid, bot, horizon, sil, gold; uniform float fade; varying vec3 vPos;
     #define PI 3.14159265
     /* 单座远景建筑：双柱 + 横梁 + 半圆拱顶，返回剪影遮罩 */
     float building(float az, float el, float center, float pitch, float hh) {
@@ -148,7 +150,7 @@ const skyMat = new THREE.ShaderMaterial({
       float silA = clamp(b, 0.0, 1.0) * horizonFade * 0.16;
       c = mix(c, mix(sil, bot, 0.35), silA);
 
-      gl_FragColor = vec4(c, 1.0);
+      gl_FragColor = vec4(c, fade);
     }`,
 });
 const skyMesh = new THREE.Mesh(skyGeo, skyMat);
@@ -156,7 +158,8 @@ skyMesh.frustumCulled = false;
 scene.add(skyMesh);
 
 /* ---------- 灯光：环境柔光 + 左上方45°暖白主光（4500K #FFF4E0） ---------- */
-scene.add(new THREE.AmbientLight(0xfff7ec, 0.6));
+const ambientLight = new THREE.AmbientLight(0xfff7ec, 0.6);
+scene.add(ambientLight);
 const dirLight = new THREE.DirectionalLight(0xfff4e0, 0.95);  /* ≈环境光1.5倍 */
 dirLight.position.set(-11, 13, stationZ(2) + 8);               /* 场景左上方 */
 dirLight.target.position.set(0, 1.5, stationZ(2) - 3);        /* 斜射向中央T台花门 */
@@ -277,11 +280,202 @@ envelope.scale.setScalar(App.isMobile ? 0.78 : 0.95);
 scene.add(envelope);
 envelope.traverse((o) => { if (o.isMesh) { o.userData.kind = "envelope"; clickable.push(o); } });
 const envBaseY = envelope.position.y;
+const envBaseScale = envelope.scale.x;
 tickers.push((t) => {
   if (!opened) {
     envelope.position.y = envBaseY + Math.sin(t * 0.8) * 0.06;
     envelope.rotation.y = pointer.x * 0.08 + Math.sin(t * 0.4) * 0.02;
   }
+});
+
+/* ================= 开场微电影（loading → 黑场顶光 → 信封浮现 → 定格暖光） =================
+   时间轴（ct 秒，全部 ease-in-out）：
+   A 0.0–1.5s  黑场中顶光缓缓亮起，光束与金色尘埃浮现；
+   B 1.5–3.1s  信封在光中由虚到实淡入，镜头缓推（DoF 用光晕+尺度 settle 模拟）；
+   C 3.1–4.4s  顶光交棒给室内暖光，黑场遮罩褪尽，CLIK TO OPEN 浮现。
+   跳过（加载>5s 点击）直接进入定格待命态。 -------------------------------------- */
+const introState = { phase: "loading", t0: 0, shown: false };
+const veilEl = document.getElementById("cinema-veil");
+const loaderEl = document.getElementById("intro-loader");
+let introLight = 1;   /* 常规灯光系数：cinema 期间被压暗，定格时回 1 */
+
+/* 黑场顶光：聚光灯（唯一主光源） */
+const introSpot = new THREE.SpotLight(0xffe6bf, 0, 34, 0.52, 0.82, 1.3);
+introSpot.position.set(0, 8.6, 2.6);
+const introSpotTgt = new THREE.Object3D();
+introSpotTgt.position.set(0, 1.0, 0.6);
+scene.add(introSpotTgt);
+introSpot.target = introSpotTgt;
+scene.add(introSpot);
+
+/* 顶光锥形光束（加色混合，黑场中可见丁达尔光柱） */
+const introBeamMat = new THREE.MeshBasicMaterial({
+  map: makeBeamTexture(128, 512), transparent: true, opacity: 0,
+  blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  fog: false, color: 0xffe9c6,
+});
+const introBeam = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 9.6), introBeamMat);
+{
+  const from = new THREE.Vector3(0, 8.4, 2.4), to = new THREE.Vector3(0, 0.5, 0.6);
+  introBeam.position.copy(from).add(to).multiplyScalar(0.5);
+  introBeam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), to.clone().sub(from).normalize());
+}
+introBeam.visible = false;
+scene.add(introBeam);
+
+/* 光束中缓慢上浮的金色微尘 */
+const INTRO_DUST = 130;
+const introDustGeo = new THREE.BufferGeometry();
+const introDustPos = new Float32Array(INTRO_DUST * 3);
+const introDustData = [];
+for (let i = 0; i < INTRO_DUST; i++) {
+  const d = {
+    x: (rnd() * 2 - 1) * 2.0, y: 0.4 + rnd() * 7.8, z: 0.6 + (rnd() * 2 - 1) * 1.7,
+    ph: rnd() * 6.28, sp: 0.05 + rnd() * 0.09, ax: 0.12 + rnd() * 0.3,
+  };
+  introDustData.push(d);
+  introDustPos[i * 3] = d.x; introDustPos[i * 3 + 1] = d.y; introDustPos[i * 3 + 2] = d.z;
+}
+introDustGeo.setAttribute("position", new THREE.BufferAttribute(introDustPos, 3));
+const introDustMat = new THREE.PointsMaterial({
+  map: makeDustTexture(64), color: 0xffe0a4, size: 0.13, sizeAttenuation: true,
+  transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+});
+const introDust = new THREE.Points(introDustGeo, introDustMat);
+introDust.frustumCulled = false;
+introDust.visible = false;
+scene.add(introDust);
+
+function introSeg(ct, t0, t1) { return ct <= t0 ? 0 : ct >= t1 ? 1 : easeInOut((ct - t0) / (t1 - t0)); }
+
+/* 极轻风铃（浏览器自动播放策略下，无用户手势时 AudioContext 挂起 → 静默跳过） */
+function introChime() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    if (ctx.state !== "running") { ctx.close().catch(() => {}); return; }
+    const master = ctx.createGain();
+    master.gain.value = 0.05;
+    master.connect(ctx.destination);
+    [880, 1318.5].forEach((f, i) => {
+      const t0 = ctx.currentTime + i * 0.22;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.8, t0 + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.4);
+      o.connect(g); g.connect(master);
+      o.start(t0); o.stop(t0 + 2.6);
+    });
+    setTimeout(() => { try { ctx.close(); } catch (e) {} }, 3400);
+  } catch (e) {}
+}
+
+/* 黑场期间藏起花瓣/散景等氛围粒子，定格阶段随暖光回归 */
+function setAmbientParticles(v) {
+  [petals, flecks, fgBokeh].forEach((o) => { o.visible = v; });
+  bokehList.forEach(({ sp }) => { sp.visible = v; });
+  farHazeList.forEach(({ sp }) => { sp.visible = v; });
+}
+
+function beginCinema() {
+  if (introState.phase !== "loading") return;
+  introState.phase = "cinema";
+  introState.t0 = elapsed;
+  introState.shown = false;
+  document.body.classList.add("cinema-ing");
+  loaderEl.classList.add("hide");
+  setTimeout(() => { if (loaderEl.parentNode) loaderEl.parentNode.removeChild(loaderEl); }, 1200);
+  veilEl.classList.remove("off");
+  veilEl.style.opacity = "1";
+  introBeam.visible = true;
+  introDust.visible = true;
+  setAmbientParticles(false);
+  envelope.userData.fadeMats.forEach((m) => { m.transparent = true; m.opacity = 0; });
+  introLight = 0.03;
+  ambientLight.intensity = 0.6 * introLight;
+  dirLight.intensity = 0.95 * introLight;
+  spotLights.forEach(({ sp }) => { sp.intensity = 60 * introLight; });
+  skyMat.uniforms.fade.value = 0.02;
+  introChime();
+}
+
+function finishCinema() {
+  if (introState.phase === "ready") return;
+  introState.phase = "ready";
+  document.body.classList.remove("cinema-ing");
+  veilEl.classList.add("off");
+  introBeam.visible = false;
+  introDust.visible = false;
+  introSpot.intensity = 0;
+  introBeamMat.opacity = 0;
+  introDustMat.opacity = 0;
+  introLight = 1;
+  ambientLight.intensity = 0.6;
+  dirLight.intensity = 0.95;
+  spotLights.forEach(({ sp }) => { sp.intensity = 60; });
+  skyMat.uniforms.fade.value = 1;
+  const glowMat = envelope.userData.glow.material;
+  envelope.userData.fadeMats.forEach((m) => {
+    if (m === glowMat) return;
+    m.opacity = 1; m.transparent = false;
+  });
+  glowMat.opacity = 0.25;
+  envelope.scale.setScalar(envBaseScale);
+  setAmbientParticles(true);
+  camera.position.z = CAM_START;
+}
+
+/* 跳过加载：直接进入待命定格态 */
+function skipIntro() {
+  if (introState.phase !== "loading") return;
+  loaderEl.classList.add("hide");
+  setTimeout(() => { if (loaderEl.parentNode) loaderEl.parentNode.removeChild(loaderEl); }, 900);
+  finishCinema();
+}
+let skipArmed = false;
+setTimeout(() => { skipArmed = true; if (loaderEl) loaderEl.classList.add("can-skip"); }, 5000);
+loaderEl.addEventListener("click", () => { if (skipArmed) skipIntro(); });
+
+tickers.push((t) => {
+  /* 微尘在光束中极慢上浮（开场期间） */
+  if (introDust.visible) {
+    const arr = introDustGeo.attributes.position.array;
+    for (let i = 0; i < introDustData.length; i++) {
+      const d = introDustData[i];
+      let y = d.y + ((t * d.sp) % 7.8);
+      if (y > 8.2) y -= 7.8;
+      arr[i * 3] = d.x + Math.sin(t * d.sp + d.ph) * d.ax;
+      arr[i * 3 + 1] = y;
+      arr[i * 3 + 2] = d.z + Math.cos(t * d.sp * 0.8 + d.ph) * d.ax;
+    }
+    introDustGeo.attributes.position.needsUpdate = true;
+  }
+  if (introState.phase !== "cinema") return;
+  const ct = t - introState.t0;
+  const a = introSeg(ct, 0, 1.5);    /* 顶光亮起 */
+  const b = introSeg(ct, 1.5, 3.1);  /* 信封浮现 + 镜头缓推 */
+  const c = introSeg(ct, 3.1, 4.4);  /* 交棒室内暖光 */
+
+  veilEl.style.opacity = String(1 - (0.22 * a + 0.60 * b + 0.18 * c));
+  introLight = 0.03 + 0.22 * b + 0.75 * c;
+  ambientLight.intensity = 0.6 * introLight;
+  dirLight.intensity = 0.95 * introLight;
+  spotLights.forEach(({ sp }) => { sp.intensity = 60 * introLight; });
+
+  const spotK = a * (1 - c);
+  introSpot.intensity = 170 * spotK;
+  introBeamMat.opacity = 0.5 * spotK;
+  introDustMat.opacity = 0.95 * spotK;
+  skyMat.uniforms.fade.value = 0.02 + 0.98 * c;
+
+  envelope.userData.fadeMats.forEach((m) => { if (m !== envelope.userData.glow.material) m.opacity = b; });
+  envelope.scale.setScalar(envBaseScale * (1.12 - 0.12 * b));
+  envelope.userData.glow.material.opacity = 0.25 + 1.05 * a * (1 - 0.5 * b) * (1 - c);
+
+  if (ct >= 3.1 && !introState.shown) { introState.shown = true; setAmbientParticles(true); }
+  if (ct >= 4.4) finishCinema();
 });
 
 /* ---------- 殿堂（场景2） ---------- */
@@ -649,8 +843,8 @@ tickers.push((t) => {
 });
 
 tickers.push((t) => {
-  camLight.intensity = 18 + Math.sin(t * 1.3) * 1.5;
-  warmLight.intensity = 10 + Math.cos(t * 1.1) * 1.2;
+  camLight.intensity = (18 + Math.sin(t * 1.3) * 1.5) * introLight;
+  warmLight.intensity = (10 + Math.cos(t * 1.1) * 1.2) * introLight;
 });
 
 /* ================= 指针视差 / 射线 ================= */
@@ -670,7 +864,7 @@ window.addEventListener("pointerup", (e) => {
   const dx = e.clientX - downPos.x, dy = e.clientY - downPos.y;
   downPos = null;
   if (dx * dx + dy * dy > 100) return;
-  if (App.isOverlayOpen()) return;
+  if (App.isOverlayOpen() || introState.phase !== "ready") return;
   if (e.target && e.target.closest && e.target.closest("button, a, input, textarea, select, .hud, #nav-dots, .modal, .lightbox, .map-overlay")) return;
   ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(ndc, camera);
@@ -683,7 +877,7 @@ window.addEventListener("pointerup", (e) => {
 
 /* ================= 信封开场 ================= */
 function openEnvelope() {
-  if (opening || opened) return;
+  if (opening || opened || introState.phase !== "ready") return;
   opening = true;
   App.$("#open-hint").style.opacity = "0";
   try { App.music.play(); } catch (e) {}
@@ -1048,12 +1242,20 @@ App.$("#home-btn").addEventListener("click", () => {
   setTimeout(() => { opened = false; envelope.visible = true; }, 2000);
 });
 
-/* ================= 持久素材恢复 ================= */
-(async function restore() {
+/* ================= 持久素材预加载（开场前全部缓存，避免进入后马赛克） ================= */
+const photosReady = (async function restore() {
   for (let slot = 1; slot <= cfg.photoSlots; slot++) {
     try { const blob = await App.db.getFile(cfg.photoKey(slot)); if (blob) setPhoto(slot, blob); } catch (e) {}
   }
 })();
+
+/* ================= 加载闸门：字体 + 照片缓存 + 最短展示（Logo 呼吸一轮）后开场 ================= */
+const fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+const minLogoTime = new Promise((r) => setTimeout(r, 2800));
+Promise.race([
+  Promise.all([fontsReady, photosReady, minLogoTime]),
+  new Promise((r) => setTimeout(r, 9000)),   /* 硬上限：任何环节卡住也不困在加载页 */
+]).then(() => { if (introState.phase === "loading") beginCinema(); });
 
 /* ================= 字体就绪重绘 ================= */
 if (document.fonts && document.fonts.ready) {
@@ -1103,6 +1305,11 @@ function tick() {
 
   scroll.cur += (scroll.target - scroll.cur) * 0.075;
   if (opened) camera.position.z = camZFor(scroll.cur);
+  else if (introState.phase === "cinema") {
+    /* 开场 B 阶段：镜头由远缓推至信封（ease-in-out，物理惯性） */
+    const b = introSeg(elapsed - introState.t0, 1.5, 3.1);
+    camera.position.z = CAM_START + 5 * (1 - b);
+  }
   else if (!opening) camera.position.z = CAM_START;
 
   /* 圆环轮播（画廊/爱情故事）由 ringControllers 状态机驱动（ease-in-out 自动流转） */
@@ -1158,6 +1365,8 @@ if (fallbackEl) { fallbackEl.hidden = true; fallbackEl.style.display = ""; }
 
 window.__invite = {
   open: openEnvelope, go: goTo,
+  playIntro: beginCinema, skipIntro,
+  get phase() { return introState.phase; },
   get opened() { return opened; },
   get station() { return activeStation; },
   get dpr() { return renderer.getPixelRatio(); },
