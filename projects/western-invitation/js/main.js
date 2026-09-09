@@ -1042,6 +1042,19 @@ function setPhoto(slot, blob) {
   new THREE.TextureLoader().load(url, (tex) => {
     tex.colorSpace = THREE.SRGBColorSpace;
     enrichTexture(tex);
+    /* object-fit: cover —— 居中裁切，防止不同长宽比的照片被拉伸变形 */
+    const img = tex.image;
+    if (img && img.width && img.height) {
+      const imgA = img.width / img.height;
+      const frameA = frame.userData.photo.geometry.parameters.width /
+                     frame.userData.photo.geometry.parameters.height;
+      tex.center.set(0.5, 0.5);
+      if (imgA > frameA) {
+        tex.repeat.set(frameA / imgA, 1);
+      } else {
+        tex.repeat.set(1, imgA / frameA);
+      }
+    }
     const old = frame.userData.photoMat.map;
     frame.userData.photoMat.map = tex;
     frame.userData.photoMat.needsUpdate = true;

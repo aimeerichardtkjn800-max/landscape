@@ -218,12 +218,21 @@ body.cinema-ing .invite-section [data-animate] { opacity: 0 !important; transfor
 .invite-section.align-right { justify-content: flex-end; padding-right: max(4vw, 3.2rem); }
 
 .text-card {
+  position: relative;
+  isolation: isolate;
   max-width: 32rem;
   text-align: center;
   pointer-events: auto;
-  /* 毛玻璃底板：衬托文字，增强可读性与高级感 */
   padding: clamp(1.4rem, 4.5vw, 2.6rem) clamp(1.3rem, 5vw, 3rem);
   border-radius: 6px;
+  background: transparent;
+}
+/* 毛玻璃底板与文字分层：backdrop-filter 仅作用于 ::before，
+   文字在主层不受模糊滤镜影响，移动端清晰锐利 */
+.text-card::before {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
   background:
     radial-gradient(ellipse at 50% 0%, rgba(255,246,216,.5), rgba(251,246,236,.32) 55%, rgba(243,234,216,.18));
   border: 1px solid rgba(212,175,55,.28);
@@ -232,6 +241,7 @@ body.cinema-ing .invite-section [data-animate] { opacity: 0 !important; transfor
     inset 0 0 42px rgba(255,246,216,.35);
   backdrop-filter: blur(7px) saturate(1.08);
   -webkit-backdrop-filter: blur(7px) saturate(1.08);
+  z-index: -1;
 }
 .align-left .text-card { text-align: left; }
 .align-right .text-card { text-align: right; }
@@ -321,7 +331,10 @@ body.cinema-ing .invite-section [data-animate] { opacity: 0 !important; transfor
   line-height: 2;
   letter-spacing: .06em;
   white-space: pre-line;
+  word-break: keep-all;
+  overflow-wrap: break-word;
   text-shadow: 0 1px 2px rgba(255,248,230,.75), 0 0 10px rgba(255,240,210,.35);
+  transform: translateZ(0);
 }
 .sub-text {
   font-size: clamp(.92rem, 2.4vw, 1.08rem);
@@ -337,10 +350,10 @@ body.cinema-ing .invite-section [data-animate] { opacity: 0 !important; transfor
 /* ---------- 金边卡片 ---------- */
 .gold-frame {
   position: relative;
+  isolation: isolate;
   border: 1px solid rgba(212,175,55,.55);
   background: linear-gradient(160deg, rgba(251,246,236,.92), rgba(243,234,216,.88));
   box-shadow: 0 0 0 1px rgba(40,34,24,.3), 0 18px 60px rgba(40,34,24,.25), inset 0 0 38px rgba(212,175,55,.08);
-  backdrop-filter: blur(3px);
 }
 .gold-frame::before {
   content: "";
