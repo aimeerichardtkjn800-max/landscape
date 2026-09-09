@@ -857,18 +857,24 @@ const pointer = { x: 0, y: 0 };
 const raycaster = new THREE.Raycaster();
 raycaster.far = 24;
 const ndc = new THREE.Vector2();
-let downPos = null;
+/* 手势状态机：统一判定 tap（点击照片/信封）与 swipe（章节翻页），
+   避免移动端轻触被误判为翻页、或翻页抬手又误触打开灯箱 */
+const TAP_SLOP2 = 144;   /* 位移 12px 以内视为“点击”，与翻页阈值一致 */
+const gesture = { x: 0, y: 0, swiped: false, active: false };
 
 window.addEventListener("pointermove", (e) => {
   pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -((e.clientY / window.innerHeight) * 2 - 1);
 });
-window.addEventListener("pointerdown", (e) => { downPos = { x: e.clientX, y: e.clientY }; });
+window.addEventListener("pointerdown", (e) => {
+  gesture.x = e.clientX; gesture.y = e.clientY; gesture.swiped = false; gesture.active = true;
+});
 window.addEventListener("pointerup", (e) => {
-  if (!downPos) return;
-  const dx = e.clientX - downPos.x, dy = e.clientY - downPos.y;
-  downPos = null;
-  if (dx * dx + dy * dy > 100) return;
+  if (!gesture.active) return;
+  gesture.active = false;
+  const dx = e.clientX - gesture.x, dy = e.clientY - gesture.y;
+  /* 发生过滑动翻页、或位移超过点击阈值 → 不是点击，不触发照片/信封 */
+  if (gesture.swiped || dx * dx + dy * dy > TAP_SLOP2) return;
   if (App.isOverlayOpen() || introState.phase !== "ready") return;
   if (e.target && e.target.closest && e.target.closest("button, a, input, textarea, select, .hud, #nav-dots, .modal, .lightbox, .map-overlay")) return;
   ndc.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
@@ -938,15 +944,21 @@ window.addEventListener("wheel", (e) => {
 let touchStart = null;
 window.addEventListener("touchstart", (e) => {
   if (App.isOverlayOpen()) return;
-  touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY, s0: scroll.target };
+  const t = e.touches[0];
+  touchStart = { x: t.clientX, y: t.clientY, s0: scroll.target };
+  /* 同步手势起点（部分机型 pointerdown 早于 touchstart，用触点再校准一次） */
+  gesture.x = t.clientX; gesture.y = t.clientY; gesture.swiped = false; gesture.active = true;
 }, { passive: true });
 
 window.addEventListener("touchmove", (e) => {
   if (!opened || !touchStart || App.isOverlayOpen()) return;
-  const dy = e.touches[0].clientY - touchStart.y;
-  if (Math.abs(dy) > 6) {
+  const t = e.touches[0];
+  const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
+  /* 位移超过点击阈值 → 判定为滑动，pointerup 不再触发照片/信封点击 */
+  if (dx * dx + dy * dy > TAP_SLOP2) gesture.swiped = true;
+  if (Math.abs(dy) > 12) {
     /* 纵向：锚点固定，总位移 1:1 映射（禁止逐事件累加，防止轻滑飞多页）；
-       画廊旋转不受任何触摸影响 */
+       画廊旋转不受任何触摸影响。阈值 12px 与点击阈值一致，轻触抖动不翻页 */
     e.preventDefault();
     scroll.target = App.clamp(touchStart.s0 + (-dy) * 0.0042, 0, STATIONS - 1);
   }
@@ -1118,12 +1130,29 @@ const lightbox = App.$("#lightbox");
 const lbImg = App.$("#lb-img");
 const lbCounter = App.$("#lb-counter");
 let lbList = [], lbIdx = 0;
+
+/* 打开浮层后，吞并“同一手势”紧接着产生的合成 click：
+   点击照片/按钮 → pointerup 打开浮层 → 浏览器再派发一个 click，
+   若它落在遮罩上会把刚打开的浮层立即关闭（灯箱闪退/点不开）。
+   这里在捕获阶段拦截打开后短时间内的第一个 click。 */
+function guardOverlayOpen(el) {
+  el.classList.add("open");
+  const block = (ev) => {
+    ev.stopPropagation();
+    ev.preventDefault();
+    clearTimeout(timer);
+    document.removeEventListener("click", block, true);
+  };
+  const timer = setTimeout(() => document.removeEventListener("click", block, true), 360);
+  document.addEventListener("click", block, true);
+}
+
 function openLightbox(slot) {
   lbList = allFrames.filter((f) => f.userData.filled).map((f) => f.userData.slot);
   lbIdx = lbList.indexOf(slot);
   if (lbIdx < 0) lbIdx = 0;
   renderLb();
-  lightbox.classList.add("open");
+  guardOverlayOpen(lightbox);
 }
 function renderLb() {
   const slot = lbList[lbIdx];
@@ -1137,7 +1166,7 @@ lightbox.addEventListener("click", (e) => { if (e.target === lightbox) lightbox.
 
 /* ================= 地图浮层 ================= */
 const mapOverlay = App.$("#map-overlay");
-App.$("#map-btn").addEventListener("click", () => mapOverlay.classList.add("open"));
+App.$("#map-btn").addEventListener("click", () => guardOverlayOpen(mapOverlay));
 mapOverlay.addEventListener("click", (e) => { if (e.target === mapOverlay) mapOverlay.classList.remove("open"); });
 App.$("#map-close").addEventListener("click", () => mapOverlay.classList.remove("open"));
 

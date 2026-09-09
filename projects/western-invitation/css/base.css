@@ -34,7 +34,7 @@ html, body {
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
-  touch-action: manipulation;
+  touch-action: none;   /* 全屏3D：章节翻页由 JS touchmove 完全接管，禁用浏览器默认手势（viewport 已禁双击缩放，无300ms延迟） */
   user-select: none;
 }
 
